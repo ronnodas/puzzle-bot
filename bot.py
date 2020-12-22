@@ -1,9 +1,8 @@
 #!/usr/bin/env python3
 # coding: utf-8
 
-import os
-import random
 import asyncio
+import os
 
 import discord
 from discord.ext import commands
@@ -18,12 +17,27 @@ intents.members = True
 intents.messages = True
 
 description = "A bot to help the Donner Party hunt."
+help_command = commands.DefaultHelpCommand(
+    no_category='Commands'
+)
 
-HELP_STRING = '''
-'''
+bot = commands.Bot(commands.when_mentioned, description=description, intents=intents, help_command=help_command)
 
 
-bot = commands.Bot(commands.when_mentioned, description=description, intents=intents)
+def get_category_by_name(ctx, name):
+    return discord.utils.get(ctx.guild.categories, name=name)
+
+
+def get_party_channel(ctx):
+    for channel in ctx.guild.text_channels:
+        if channel.name.startswith("party-of"):
+            return channel
+
+
+def get_party_count(ctx):
+    solved_category = get_category_by_name(ctx, "Solved")
+    return len(ctx.guild.members) - len(solved_category.channels)
+
 
 async def add_puzzle_text_channel(ctx, name):
     puzzle_category = get_category_by_name(ctx, "Puzzles")
@@ -31,14 +45,17 @@ async def add_puzzle_text_channel(ctx, name):
     if not channel:
         await ctx.guild.create_text_channel(name, category=puzzle_category, topic=name)
 
+
 async def remove_voice_channel(ctx, name):
     channel = discord.utils.get(ctx.guild.voice_channels, name=name)
-    if channel is None:return
+    if channel is None:
+        return
     if not channel.members:
         await ctx.send("Not removing voice channel in use")
     else:
         await channel.delete()
         await ctx.message.add_reaction('👍')
+
 
 async def toggle_puzzle_voice_channel(ctx, name):
     voice_category = get_category_by_name(ctx, "Voice Channels")
@@ -47,32 +64,7 @@ async def toggle_puzzle_voice_channel(ctx, name):
         await ctx.guild.create_voice_channel(name, category=voice_category, topic=name)
         await ctx.message.add_reaction('👍')
     else:
-        remove_voice_channel(ctx, name)
-
-
-def get_category_by_name(ctx, name):
-    return discord.utils.get(ctx.guild.categories, name=name)
-
-def get_party_channel(ctx):
-    for channel in ctx.guild.text_channels:
-        if channel.name.startswith("party-of"):
-            return channel
-
-def get_party_count(ctx):
-    solved_category = get_category_by_name(ctx, "Solved")
-    return len(ctx.guild.members) - len(solved_category.channels)
-
-
-@bot.command(name="recount")
-async def update_party_size(ctx):
-    solved_category = get_category_by_name(ctx, "Solved")
-    channel = get_party_channel(ctx)
-    N = get_party_count(ctx)
-    if N >= 0:
-        num = str(N)
-    else:
-        num = "minus"+str(N)
-    await channel.edit(name=("party-of-"+num))
+        await remove_voice_channel(ctx, name)
 
 
 @bot.event
@@ -82,8 +74,12 @@ async def on_ready():
     print(bot.user.id)
     print('------')
 
+
 @bot.command()
 async def puzzle(ctx, *args):
+    """Creates channels and spreadsheets (?) associated to a new puzzle
+
+    Usage: @DonnerBot puzzle Hello World"""
     puzzle_title = ' '.join(args)
     if not puzzle_title:
         await ctx.send("Please include puzzle name as argument when creating a puzzle")
@@ -93,15 +89,15 @@ async def puzzle(ctx, *args):
     await ctx.message.add_reaction('👍')
 
 
-# @bot.command()
-# async def help(ctx):
-#     await ctx.send(HELP_STRING)
-
 @bot.command()
 async def voice(ctx):
+    """Toggles voice channel on or off for a given puzzle. Does not turn off if currently in use. Can only be used
+    in the corresponding text channel.
+
+    Usage: @DonnerBot voice"""
     category_name = ctx.channel.category.name
     if category_name != "Puzzles" and category_name != "Solved":
-        await send("Voice channels can only be toggled from the corresponding text channel!")
+        await ctx.send("Voice channels can only be toggled from the corresponding text channel!")
         return
     puzzle_title = ctx.channel.topic.strip()
     await toggle_puzzle_voice_channel(ctx, puzzle_title)
@@ -109,6 +105,10 @@ async def voice(ctx):
 
 @bot.command()
 async def solve(ctx):
+    """Marks a puzzle as solved and removes the associated voice channel if empty. Can only be used in the
+    corresponding text channel. Also automatically updates the party size.
+
+    Usage: @DonnerBot solve"""
     if ctx.channel.category.name != "Puzzles":
         await ctx.send("Only text channels for unsolved puzzles can be solved!")
         return
@@ -118,7 +118,23 @@ async def solve(ctx):
     await remove_voice_channel(ctx, puzzle_title)
     await asyncio.sleep(0.3)
     await update_party_size(ctx)
-    await get_party_channel(ctx).send(f"Solved puzzle {puzzle_title}. We're now Donner, Party of {get_party_count(ctx)}...")
+    await get_party_channel(ctx).send(
+        f"Solved puzzle {puzzle_title}. We're now Donner, Party of {get_party_count(ctx)}...")
+
+
+@bot.command(name="recount")
+async def update_party_size(ctx):
+    """Updates the party size count should it get out of sync for whatever reason. Actually renames the topmost
+    channel whose name starts with 'party-of-'.
+
+    Usage: @DonnerBot recount"""
+    channel = get_party_channel(ctx)
+    n = get_party_count(ctx)
+    if n >= 0:
+        num = str(n)
+    else:
+        num = "minus" + str(n)
+    await channel.edit(name=("party-of-" + num))
 
 
 bot.run(TOKEN)
