@@ -50,7 +50,7 @@ async def remove_voice_channel(ctx, name):
     channel = discord.utils.get(ctx.guild.voice_channels, name=name)
     if channel is None:
         return
-    if not channel.members:
+    if channel.members:
         await ctx.send("Not removing voice channel in use")
     else:
         await channel.delete()
