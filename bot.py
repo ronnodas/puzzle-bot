@@ -143,7 +143,7 @@ async def update_party_size(ctx):
     else:
         num = "minus" + str(n)
     await channel.edit(name=("party-of-" + num))
-    ctx.message.add_reaction('👍')
+    await ctx.message.add_reaction('👍')
 
 
 bot.run(TOKEN)
