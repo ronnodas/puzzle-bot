@@ -76,11 +76,13 @@ async def on_ready():
 
 
 @bot.command()
-async def puzzle(ctx, *args):
-    """Creates channels and spreadsheets (?) associated to a new puzzle
+async def puzzle(ctx, *multi_word_title):
+    """Adds a puzzle
+
+    Creates channels and spreadsheets (?) associated to a new puzzle.
 
     Usage: @DonnerBot puzzle Hello World"""
-    puzzle_title = ' '.join(args)
+    puzzle_title = ' '.join(multi_word_title)
     if not puzzle_title:
         await ctx.send("Please include puzzle name as argument when creating a puzzle")
         return
@@ -91,7 +93,9 @@ async def puzzle(ctx, *args):
 
 @bot.command()
 async def voice(ctx):
-    """Toggles voice channel on or off for a given puzzle. Does not turn off if currently in use. Can only be used
+    """Toggles voice channel
+
+    Toggles voice channel on or off for a given puzzle. Does not turn off if currently in use. Can only be used
     in the corresponding text channel.
 
     Usage: @DonnerBot voice"""
@@ -105,8 +109,10 @@ async def voice(ctx):
 
 @bot.command()
 async def solve(ctx):
-    """Marks a puzzle as solved and removes the associated voice channel if empty. Can only be used in the
-    corresponding text channel. Also automatically updates the party size.
+    """Marks puzzle as solved
+
+    Moves the text channel and spreadsheet (?) associated to a puzzle to solved and removes the associated voice
+    channel if empty. Can only be used in the corresponding text channel. Also automatically updates the party size.
 
     Usage: @DonnerBot solve"""
     if ctx.channel.category.name != "Puzzles":
@@ -124,7 +130,9 @@ async def solve(ctx):
 
 @bot.command(name="recount")
 async def update_party_size(ctx):
-    """Updates the party size count should it get out of sync for whatever reason. Actually renames the topmost
+    """Updates party size
+
+    Updates the party size count should it get out of sync for whatever reason. Actually renames the topmost
     channel whose name starts with 'party-of-'.
 
     Usage: @DonnerBot recount"""
