@@ -47,7 +47,9 @@ async def add_puzzle_text_channel(ctx, name):
     puzzle_category = get_category_by_name(ctx, "Puzzles")
     channel = discord.utils.get(ctx.guild.text_channels, topic=name)
     if not channel:
-        await ctx.guild.create_text_channel(name, category=puzzle_category, topic=name)
+        return await ctx.guild.create_text_channel(name, category=puzzle_category, topic=name)
+    else:
+        return channel
 
 
 async def remove_voice_channel(ctx, name):
@@ -73,10 +75,18 @@ async def toggle_puzzle_voice_channel(ctx, name):
 
 def add_spreadsheet(title):
     refresh_drive_token_if_expired()
-    file1 = drive.CreateFile({'title': title,
-                              'parents': [{'id': default_folder_id}],
-                              'mimeType': 'application/vnd.google-apps.spreadsheet'})
-    file1.Upload()
+    # TODO: also check solved?
+    search_list = drive.ListFile({'q': f"mimeType = 'application/vnd.google-apps.spreadsheet' and title = '{title}' "
+                                       f"and '{default_folder_id}' in parents and trashed = false"}).GetList()
+    if search_list:
+        print(search_list)
+        return search_list[0]['alternateLink']
+    spreadsheet = drive.CreateFile({'title': title,
+                                    'parents': [{'id': default_folder_id}],
+                                    'mimeType': 'application/vnd.google-apps.spreadsheet'})
+    spreadsheet.Upload()
+    spreadsheet.FetchMetadata()
+    return spreadsheet['alternateLink']
 
 
 def move_spreadsheet_to_solved(title):
@@ -113,10 +123,13 @@ async def puzzle(ctx, *multi_word_title):
     Usage: @DonnerBot puzzle Hello World"""
     puzzle_title = ' '.join(multi_word_title)
     if not puzzle_title:
-        await ctx.send("Please include puzzle name as argument when creating a puzzle")
-        return
-    add_spreadsheet(puzzle_title)
-    await add_puzzle_text_channel(ctx, puzzle_title)
+        return await ctx.send("Please include puzzle name as argument when creating a puzzle")
+    channel = discord.utils.get(ctx.guild.text_channels, topic=puzzle_title)
+    if channel:
+        return await ctx.send("There's already a puzzle channel with this name")
+    link = add_spreadsheet(puzzle_title)
+    channel = await add_puzzle_text_channel(ctx, puzzle_title)
+    await channel.send(f"I made a spreadsheet for this puzzle at {link}")
     await toggle_puzzle_voice_channel(ctx, puzzle_title)
     await ctx.message.add_reaction('👍')
 
