@@ -1,3 +1,4 @@
 puzzball*
 .env
 .idea*
+*.json

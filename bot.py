@@ -8,9 +8,13 @@ import discord
 from discord.ext import commands
 from dotenv import load_dotenv
 
+from pydrive.auth import GoogleAuth
+from pydrive.drive import GoogleDrive
+
 load_dotenv()
 TOKEN = os.getenv('DISCORD_TOKEN')
 GUILD = os.getenv('DISCORD_GUILD')
+DRIVE_ROOT_FOLDER_NAME = 'DonnerBot'
 
 intents = discord.Intents.default()
 intents.members = True
@@ -67,6 +71,31 @@ async def toggle_puzzle_voice_channel(ctx, name):
         await remove_voice_channel(ctx, name)
 
 
+def add_spreadsheet(title):
+    refresh_drive_token_if_expired()
+    file1 = drive.CreateFile({'title': title,
+                              'parents': [{'id': default_folder_id}],
+                              'mimeType': 'application/vnd.google-apps.spreadsheet'})
+    file1.Upload()
+
+
+def move_spreadsheet_to_solved(title):
+    refresh_drive_token_if_expired()
+    search_list = drive.ListFile({'q': f"mimeType = 'application/vnd.google-apps.spreadsheet' and title = '{title}' "
+                                       f"and '{default_folder_id}' in parents and trashed = false"}).GetList()
+    if len(search_list) > 1:
+        print("Found multiple spreadsheets with title")
+        return print(search_list)
+    spreadsheet = search_list[0]
+    spreadsheet['parents'] = [{'kind': 'drive#fileLink', 'id': solved_folder_id}]
+    spreadsheet.Upload()
+
+
+def refresh_drive_token_if_expired():
+    if google_authentication.access_token_expired:
+        google_authentication.Refresh()
+
+
 @bot.event
 async def on_ready():
     print('Logged in as')
@@ -75,7 +104,7 @@ async def on_ready():
     print('------')
 
 
-@bot.command()
+@bot.command(aliases=['p'])
 async def puzzle(ctx, *multi_word_title):
     """Adds a puzzle
 
@@ -86,12 +115,13 @@ async def puzzle(ctx, *multi_word_title):
     if not puzzle_title:
         await ctx.send("Please include puzzle name as argument when creating a puzzle")
         return
+    add_spreadsheet(puzzle_title)
     await add_puzzle_text_channel(ctx, puzzle_title)
     await toggle_puzzle_voice_channel(ctx, puzzle_title)
     await ctx.message.add_reaction('👍')
 
 
-@bot.command()
+@bot.command(aliases=['v'])
 async def voice(ctx):
     """Toggles voice channel
 
@@ -107,7 +137,7 @@ async def voice(ctx):
     await toggle_puzzle_voice_channel(ctx, puzzle_title)
 
 
-@bot.command()
+@bot.command(aliases=['s'])
 async def solve(ctx):
     """Marks puzzle as solved
 
@@ -120,6 +150,7 @@ async def solve(ctx):
         return
     puzzle_title = ctx.channel.topic.strip()
     solved_category = get_category_by_name(ctx, "Solved")
+    move_spreadsheet_to_solved(puzzle_title)
     await ctx.channel.edit(category=solved_category)
     await remove_voice_channel(ctx, puzzle_title)
     await asyncio.sleep(0.3)
@@ -128,7 +159,7 @@ async def solve(ctx):
         f"Solved puzzle {puzzle_title}. We're now Donner, Party of {get_party_count(ctx)}...")
 
 
-@bot.command(name="recount")
+@bot.command(name="recount", aliases=['r'])
 async def update_party_size(ctx):
     """Updates party size
 
@@ -145,5 +176,20 @@ async def update_party_size(ctx):
     await channel.edit(name=("party-of-" + num))
     await ctx.message.add_reaction('👍')
 
+
+google_authentication = GoogleAuth()
+google_authentication.LoadCredentialsFile("saved_credentials.json")
+if google_authentication.credentials is None:
+    print("Saved credentials not found. Generate using 'authenticator.py'")
+    exit(1)
+refresh_drive_token_if_expired()
+drive = GoogleDrive(google_authentication)
+print("Loaded Google Drive credentials")
+
+# could be hardcoded to speed up startup
+default_folder_id = drive.ListFile({'q': f"mimeType = 'application/vnd.google-apps.folder' and title = "
+                                         f"'{DRIVE_ROOT_FOLDER_NAME}'"}).GetList()[0]['id']
+solved_folder_id = drive.ListFile({'q': f"mimeType = 'application/vnd.google-apps.folder' and title = 'Solved' and "
+                                        f"'{default_folder_id}' in parents"}).GetList()[0]['id']
 
 bot.run(TOKEN)
