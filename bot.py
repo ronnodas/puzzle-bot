@@ -126,7 +126,8 @@ def refresh_drive_token_if_expired():
 async def on_member_join(member):
     party_channel = get_party_channel(member)
     n = await update_party_size_passively(member)
-    message = await party_channel.send(f"{member.name} has joined! We're now Donner, Party of {n}!")
+    name = member.nick if member.nick is not None else member.name
+    message = await party_channel.send(f"{name} has joined! We're now Donner, Party of {n}!")
     await message.add_reaction('😃')
 
 
@@ -134,7 +135,8 @@ async def on_member_join(member):
 async def on_member_remove(member):
     party_channel = get_party_channel(member)
     n = await update_party_size_passively(member)
-    message = await party_channel.send(f"{member.name} has left️! We're now Donner, Party of {n}!")
+    name = member.nick if member.nick is not None else member.name
+    message = await party_channel.send(f"{name} has left️! We're now Donner, Party of {n}!")
     await message.add_reaction('☹')
 
 
