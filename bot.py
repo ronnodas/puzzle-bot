@@ -16,6 +16,8 @@ TOKEN = os.getenv('DISCORD_TOKEN')
 GUILD = os.getenv('DISCORD_GUILD')
 DRIVE_ROOT_FOLDER_NAME = os.getenv('DRIVE_ROOT_FOLDER')
 
+SAVED_CREDENTIALS_FILE = "saved_credentials.json"
+
 intents = discord.Intents.default()
 intents.members = True
 intents.messages = True
@@ -117,6 +119,23 @@ def move_spreadsheet_to_solved(title):
 def refresh_drive_token_if_expired():
     if google_authentication.access_token_expired:
         google_authentication.Refresh()
+        google_authentication.SaveCredentialsFile(SAVED_CREDENTIALS_FILE)
+
+
+@bot.event
+async def on_member_join(member):
+    party_channel = get_party_channel(member)
+    n = await update_party_size_passively(member)
+    message = await party_channel.send(f"{member.name} has joined! We're now Donner, Party of {n}!")
+    await message.add_reaction('😃')
+
+
+@bot.event
+async def on_member_remove(member):
+    party_channel = get_party_channel(member)
+    n = await update_party_size_passively(member)
+    message = await party_channel.send(f"{member.name} has left️! We're now Donner, Party of {n}!")
+    await message.add_reaction('☹')
 
 
 @bot.event
@@ -226,7 +245,7 @@ async def update_party_size(ctx):
 
 
 google_authentication = GoogleAuth()
-google_authentication.LoadCredentialsFile("saved_credentials.json")
+google_authentication.LoadCredentialsFile(SAVED_CREDENTIALS_FILE)
 if google_authentication.credentials is None:
     print("Saved credentials not found. Generate using 'authenticator.py'")
     exit(1)
