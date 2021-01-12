@@ -183,7 +183,8 @@ async def remove(ctx, *multi_word_title):
         return await ctx.send("Please include puzzle name as argument when creating a puzzle")
     await remove_voice_channel(ctx, puzzle_title)
     text_channel = discord.utils.get(ctx.guild.text_channels, topic=puzzle_title)
-    await text_channel.delete()
+    if text_channel is not None:
+        await text_channel.delete()
     for folder in [default_folder_id, solved_folder_id]:
         search_list = drive.ListFile(
             {'q': f"mimeType = 'application/vnd.google-apps.spreadsheet' and title = '{puzzle_title}' and '{folder}' "
