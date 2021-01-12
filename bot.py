@@ -68,7 +68,7 @@ async def add_voice_channel(ctx, name, check_if_exists=False):
     if check_if_exists and discord.utils.get(ctx.guild.voice_channels, name=name):
         return await ctx.send(f"Voice channel with name '{name}' already exists")
     voice_category = get_category_by_name(ctx, "Puzzle Voice Channels")
-    return ctx.guild.create_voice_channel(name, category=voice_category, topic=name)
+    return await ctx.guild.create_voice_channel(name, category=voice_category, topic=name)
 
 
 async def toggle_puzzle_voice_channel(ctx, name):
