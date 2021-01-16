@@ -40,7 +40,13 @@ def get_party_channel(ctx):
 
 def get_party_count(ctx):
     solved_category = get_category_by_name(ctx, "Solved")
-    return len(ctx.guild.members) - len(solved_category.channels)
+    solved_number = len(solved_category.channels)
+    for i in range(2, 10):
+        solved_category = get_category_by_name(ctx, f"Solved {i}")
+        if solved_category is None:
+            break
+        solved_number += len(solved_category.channels)
+    return len(ctx.guild.members) - solved_number
 
 
 async def add_puzzle_text_channel(ctx, name):
@@ -160,7 +166,7 @@ async def puzzle(ctx, *multi_word_title):
     if not puzzle_title:
         return await ctx.send("Please include puzzle name as argument when creating a puzzle")
     channel = discord.utils.get(ctx.guild.text_channels, topic=puzzle_title)
-    if channel:
+    if channel is not None:
         return await ctx.send("There's already a puzzle channel with this name")
     link = add_spreadsheet(puzzle_title)
     channel = await add_puzzle_text_channel(ctx, puzzle_title)
