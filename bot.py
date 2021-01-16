@@ -156,6 +156,7 @@ async def puzzle(ctx, *multi_word_title):
 
     Usage: @DonnerBot p[uzzle] Multi Word Puzzle Title"""
     puzzle_title = ' '.join(multi_word_title)
+    puzzle_title = ''.join(c for c in puzzle_title if c != "'")
     if not puzzle_title:
         return await ctx.send("Please include puzzle name as argument when creating a puzzle")
     channel = discord.utils.get(ctx.guild.text_channels, topic=puzzle_title)
@@ -220,7 +221,7 @@ async def solve(ctx):
 
     Usage: @DonnerBot s[olve]"""
     if ctx.channel.category.name != "Puzzles":
-        if ctx.channel.category.name != "Solved":
+        if ctx.channel.category.name == "Solved":
             return await ctx.send("Puzzle already solved!")
         return await ctx.send("This channel is not associated to a puzzle!")
     puzzle_title = ctx.channel.topic.strip()
