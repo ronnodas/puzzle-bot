@@ -226,7 +226,7 @@ async def solve(ctx):
     channel if empty. Can only be used in the corresponding text channel. Also automatically updates the party size.
 
     Usage: @DonnerBot s[olve]"""
-    if ctx.channel.category.name != "Puzzles":
+    if ctx.channel.category.name[:7] != "Puzzles":
         if ctx.channel.category.name == "Solved":
             return await ctx.send("Puzzle already solved!")
         return await ctx.send("This channel is not associated to a puzzle!")
