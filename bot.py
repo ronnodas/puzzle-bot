@@ -210,7 +210,7 @@ async def voice(ctx):
 
     Usage: @DonnerBot v[oice]"""
     category_name = ctx.channel.category.name
-    if category_name != "Puzzles" and category_name != "Solved":
+    if category_name != "Puzzles" and category_name[:6] != "Solved":
         await ctx.send("Voice channels can only be toggled from the corresponding text channel!")
         return
     puzzle_title = ctx.channel.topic.strip()
