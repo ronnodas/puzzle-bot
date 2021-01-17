@@ -232,6 +232,8 @@ async def solve(ctx):
         return await ctx.send("This channel is not associated to a puzzle!")
     puzzle_title = ctx.channel.topic.strip()
     solved_category = get_category_by_name(ctx, "Solved")
+    if len(solved_category.channels) == 50:
+        return await ctx.send("@@admin The solved category is full!")
     move_spreadsheet_to_solved(puzzle_title)
     await ctx.channel.edit(category=solved_category)
     await remove_voice_channel(ctx, puzzle_title)
