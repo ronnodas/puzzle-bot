@@ -2,7 +2,8 @@
 # coding: utf-8
 
 import os
-from typing import Any, Callable, Dict, Iterator, Optional, Tuple
+from contextlib import suppress
+from typing import Any, Callable, Dict, Iterable, Iterator, Optional, Tuple
 
 import discord
 import discord.ext.commands
@@ -124,11 +125,15 @@ class PuzzleDrive(pydrive.drive.GoogleDrive):
                 spreadsheet.Trash()
 
 
+THUMBS_UP = "👍"
+THUMBS_DOWN = "👎"
+
+
 class PuzzleBot(discord.ext.commands.Bot):
     description = "A bot to help puzzle hunts"
-    puzzles_category_name = "Puzzles"
-    solved_category_name = "Solved"
-    voice_category_name = "Puzzle Voice Channels"
+    puzzles_category_name = "🧩Puzzles"
+    solved_category_name = "✅Solved"
+    voice_category_name = "🧩Puzzle Voice Channels"
 
     def __init__(self, guild_id: int, **options: Dict[str, Any]) -> None:
         super().__init__(
@@ -167,7 +172,14 @@ class PuzzleBot(discord.ext.commands.Bot):
             await self.print_oauth_url()
             exit(1)
         await self.register_commands_and_events()
-        await self.create_categories()
+        await self.create_categories(
+            self.active_guild,
+            (
+                self.puzzles_category_name,
+                self.solved_category_name,
+                self.voice_category_name,
+            ),
+        )
         print("------")
 
     @property
@@ -177,19 +189,28 @@ class PuzzleBot(discord.ext.commands.Bot):
     def get_commands(self) -> Iterator[Tuple[Callable, Dict[str, Any]]]:
         yield self.puzzle, {
             "description": "Add a puzzle",
+            "connector": {"title": "puzzle_title"},
             "options": [
                 {
                     "name": "title",
                     "description": "Title of the puzzle including whatever characters",
-                    "type": 3,
+                    "type": discord_slash.SlashCommandOptionType.STRING,
                     "required": True,
                 }
             ],
-            "connector": {"title": "puzzle_title"},
         }
         yield self.remove, {
             "description": "Remove a puzzle",
             "permissions": {"administrator": True},
+            "connector": {"title": "puzzle_title"},
+            "options": [
+                {
+                    "name": "title",
+                    "description": "Title of the puzzle including whatever characters",
+                    "type": discord_slash.SlashCommandOptionType.STRING,
+                    "required": True,
+                }
+            ],
         }
         yield self.voice, {
             "description": "Toggle voice channel, use in the puzzle's text channel"
@@ -199,45 +220,53 @@ class PuzzleBot(discord.ext.commands.Bot):
         }
 
     async def puzzle(self, ctx: discord_slash.SlashContext, puzzle_title: str) -> None:
+        response = await ctx.send(f'Creating 🧩 "{puzzle_title}"')
         puzzle_title = puzzle_title.replace("'", "").replace('"', "")
         channel = discord.utils.get(ctx.guild.text_channels, topic=puzzle_title)
         if channel is not None:
-            await ctx.author.send("There's already a puzzle channel with this name")
+            await response.reply("There's already a puzzle channel with this name 🤔")
+            await response.add_reaction(THUMBS_DOWN)
             return
         link = self.drive.add_spreadsheet(puzzle_title)
         channel = await self.add_puzzle_text_channel(ctx, puzzle_title)
         link_message = await channel.send(
-            f"I found a spreadsheet for this puzzle at {link}"
+            f"I found a 📔spreadsheet for this puzzle at {link}"
         )
         await link_message.pin()
-        await self.add_voice_channel(ctx, puzzle_title, check_if_exists=True)
-        await ctx.send(f"Created {puzzle_title}")
+        await self.add_voice_channel(ctx.guild, puzzle_title, check_exists=True)
+        await response.add_reaction(THUMBS_UP)
 
     async def remove(self, ctx: discord_slash.SlashContext, puzzle_title: str) -> None:
+        response = await ctx.send(f'Removing "{puzzle_title}"')
         puzzle_title = puzzle_title.replace("'", "").replace('"', "")
-        await self.remove_voice_channel(ctx, puzzle_title)
+        await self.find_and_remove_voice_channel(response, puzzle_title)
         text_channel = discord.utils.get(ctx.guild.text_channels, topic=puzzle_title)
         if text_channel is not None:
             await text_channel.delete()
         await self.drive.remove_spreadsheet(puzzle_title)
-        await ctx.send(f"{puzzle_title} removed")
+        with suppress(discord.errors.NotFound):
+            await response.add_reaction(THUMBS_UP)
 
     async def solve(self, ctx: discord_slash.SlashContext) -> None:
         if not self.is_puzzle_category(ctx.channel.category):
             if self.is_solved_category(ctx.channel.category):
-                await ctx.send("Puzzle already solved!")
+                await ctx.send("Puzzle already solved 🧠", hidden=True)
             else:
-                await ctx.send("This channel is not associated to a puzzle!")
+                await ctx.send(
+                    "This channel is not associated to a puzzle 🤔", hidden=True
+                )
             return
         puzzle_title = self.get_puzzle_title_from_context(ctx)
+        response = await ctx.send(f"Marking {puzzle_title} as ✅solved")
         solved_category = self.solved_category(ctx.guild)
         if len(solved_category.channels) == 50:
-            await ctx.send("@@admin The solved category is full!")
+            await response.reply("@@admin The solved category is full! 🈵")
+            await response.add_reaction(THUMBS_DOWN)
             return
         self.drive.move_spreadsheet_to_solved(puzzle_title)
         await ctx.channel.edit(category=solved_category)
-        await self.remove_voice_channel(ctx, puzzle_title)
-        await ctx.send(f"Marked {puzzle_title} as solved")
+        await self.find_and_remove_voice_channel(response, puzzle_title)
+        await response.add_reaction(THUMBS_UP)
 
     def solved_category(
         self, guild: discord.Guild
@@ -269,57 +298,66 @@ class PuzzleBot(discord.ext.commands.Bot):
 
     @classmethod
     async def voice(cls, ctx: discord_slash.SlashContext) -> None:
-        category = ctx.channel.category
+        text_channel = ctx.channel
+        category = text_channel.category
         if not (cls.is_puzzle_category(category) or cls.is_solved_category(category)):
             await ctx.send(
-                "Voice channels can only be toggled from the corresponding text channel!"
+                "Voice channels can only be toggled from the corresponding text channel! 🤔",
+                hidden=True,
             )
             return
-        puzzle_title = ctx.channel.topic.strip()
-        if await cls.toggle_puzzle_voice_channel(ctx, puzzle_title):
-            await ctx.send(f"Toggled voice channel for {puzzle_title}", delete_after=60)
+        puzzle_title = text_channel.topic.strip()
+        response = await ctx.send(
+            f"Toggling 🔊voice channel for {puzzle_title}", delete_after=60
+        )
+        guild = ctx.guild
+        voice_channel = discord.utils.get(guild.voice_channels, name=puzzle_title)
+        if voice_channel is not None:
+            reaction = (
+                THUMBS_UP
+                if await cls.remove_voice_channel(voice_channel, response)
+                else THUMBS_DOWN
+            )
+        else:
+            await cls.add_voice_channel(guild, puzzle_title)
+            reaction = THUMBS_UP
+        await response.add_reaction(reaction)
 
     @classmethod
     def get_puzzle_title_from_context(cls, ctx: discord_slash.SlashContext) -> str:
         return ctx.channel.topic.strip()
 
     @classmethod
-    async def toggle_puzzle_voice_channel(
-        cls, ctx: discord_slash.SlashContext, name: str
-    ) -> bool:
-        channel = discord.utils.get(ctx.guild.voice_channels, name=name)
-        if not channel:
-            await cls.add_voice_channel(ctx, name)
-            return True
-        else:
-            return await cls.remove_voice_channel(ctx, name)
-
-    @classmethod
     async def add_voice_channel(
-        cls, ctx: discord_slash.SlashContext, name: str, check_if_exists: bool = False
+        cls, guild: discord.Guild, name: str, check_exists: bool = False
     ) -> discord.VoiceChannel:
-        if check_if_exists:
-            voice_channel = discord.utils.get(ctx.guild.voice_channels, name=name)
+        if check_exists:
+            voice_channel = discord.utils.get(guild.voice_channels, name=name)
             if voice_channel:
-                await ctx.send(f"Voice channel with name '{name}' already exists")
                 return voice_channel
-        voice_category = cls.get_category_by_name(ctx.guild, cls.voice_category_name)
-        return await ctx.guild.create_voice_channel(
+        voice_category = cls.get_category_by_name(guild, cls.voice_category_name)
+        return await guild.create_voice_channel(
             name, category=voice_category, topic=name
         )
 
     @classmethod
-    async def remove_voice_channel(
-        cls, ctx: discord_slash.SlashContext, name: str
-    ) -> bool:
-        channel = discord.utils.get(ctx.guild.voice_channels, name=name)
+    async def find_and_remove_voice_channel(
+        cls, response: discord.Message, name: str
+    ) -> None:
+        channel = discord.utils.get(response.guild.voice_channels, name=name)
         if channel is None:
-            return False
-        if channel.members:
-            await ctx.send("Not removing voice channel in use")
+            return
+        await cls.remove_voice_channel(channel, response)
+
+    @classmethod
+    async def remove_voice_channel(
+        cls, voice_channel: discord.VoiceChannel, response: discord.Message
+    ) -> bool:
+        if voice_channel.members:
+            await response.reply("Not removing voice channel in use 🗣️")
             return False
         else:
-            await channel.delete()
+            await voice_channel.delete()
             return True
 
     @classmethod
@@ -338,8 +376,12 @@ class PuzzleBot(discord.ext.commands.Bot):
     @classmethod
     def get_category_by_name(
         cls, guild: discord.Guild, name: str
-    ) -> Optional[discord.CategoryChannel]:
-        return discord.utils.get(guild.categories, name=name)
+    ) -> discord.CategoryChannel:
+        category = discord.utils.get(guild.categories, name=name)
+        if category is not None:
+            return category
+        cls.create_categories(guild, (name,))
+        return cls.get_category_by_name(guild, name)
 
     @classmethod
     def is_puzzle_category(cls, category: Optional[discord.CategoryChannel]) -> bool:
@@ -355,14 +397,13 @@ class PuzzleBot(discord.ext.commands.Bot):
     ) -> bool:
         return category is not None and category.name.lower().startswith(prefix.lower())
 
-    async def create_categories(self) -> None:
-        for category in (
-            self.puzzles_category_name,
-            self.solved_category_name,
-            self.voice_category_name,
-        ):
-            if self.get_category_by_name(self.active_guild, category) is None:
-                await self.active_guild.create_category(category)
+    @classmethod
+    async def create_categories(
+        cls, guild: discord.Guild, category_iterable: Iterable[str]
+    ) -> None:
+        for name in category_iterable:
+            if discord.utils.get(guild.categories, name=name) is None:
+                await guild.create_category(name)
 
 
 if __name__ == "__main__":
