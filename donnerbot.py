@@ -1,5 +1,4 @@
-from collections.abc import Callable, Iterator
-from typing import Any, Dict, Tuple
+from typing import Any, Dict, Tuple, Callable, Iterator
 
 import discord
 import discord_slash

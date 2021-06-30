@@ -2,9 +2,8 @@
 # coding: utf-8
 
 import os
-from collections.abc import Callable, Iterable, Iterator
 from contextlib import suppress
-from typing import Any, Dict, Optional, Tuple
+from typing import Any, Callable, Dict, Iterable, Iterator, Optional, Tuple
 
 import discord
 import discord.ext.commands
