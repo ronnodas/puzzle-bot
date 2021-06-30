@@ -1,8 +1,8 @@
 from collections.abc import Callable, Iterator
-from typing import Any, Dict, Tuple, Union
+from typing import Any, Dict, Tuple
 
 import discord
-from discord_slash import SlashContext
+import discord_slash
 
 import bot
 
@@ -16,75 +16,62 @@ class DonnerBot(bot.PuzzleBot):
 
     def get_commands(self) -> Iterator[Tuple[Callable, Dict[str, Any]]]:
         yield from super().get_commands()
-        yield self.update_party_size, {"name": "recount", "aliases": ["r"]}
+        yield self.recount, {
+            "description": "Update party size if it gets out of sync for some reason"
+        }
 
-    async def solve(self, ctx: SlashContext) -> None:
+    async def solve(self, ctx: discord_slash.SlashContext) -> None:
         await super().solve(ctx)
-        count = await self.update_party_size_passively(ctx)
-        puzzle_title = self.get_puzzle_title_from_context(ctx)
-        await self.get_party_channel(ctx).send(
-            f"Solved puzzle {puzzle_title}. We're now Donner, Party of {count}..."
+        puzzle_title = self.get_puzzle_title(ctx.channel)
+        await self.update_party_channel(ctx.guild, f"Solved puzzle {puzzle_title}.")
+
+    @classmethod
+    async def on_member_join(cls, member: discord.Member) -> None:
+        await cls.update_party_channel(
+            member.guild, f"{member.display_name} has joined 😃"
         )
 
     @classmethod
     async def on_member_remove(cls, member: discord.Member) -> None:
-        party_channel = cls.get_party_channel(member)
-        n = await cls.update_party_size_passively(member)
-        name = member.nick if member.nick is not None else member.name
-        message = await party_channel.send(
-            f"{name} has left️! We're now Donner, Party of {n}!"
+        await cls.update_party_channel(
+            member.guild, f"{member.display_name} has left️ ☹"
         )
-        await message.add_reaction("☹")
 
     @classmethod
-    async def update_party_size(cls, ctx: SlashContext) -> None:
-        """Updates party size
-
-        Updates the party size count should it get out of sync for whatever reason. Actually renames the topmost
-        channel whose name starts with 'party-of-'.
-
-        Usage: @DonnerBot r[ecount]"""
-        await cls.update_party_size_passively(ctx)
-        await ctx.message.add_reaction("👍")
+    async def recount(cls, ctx: discord_slash.SlashContext) -> None:
+        response = await ctx.send("Updating party size", hidden=True)
+        await cls.update_party_size_silently(ctx.guild)
+        await response.add_reaction(bot.THUMBS_UP)
 
     @classmethod
-    async def on_member_join(cls, member: discord.Member) -> None:
-        party_channel = cls.get_party_channel(member)
-        n = await cls.update_party_size_passively(member)
-        name = member.nick if member.nick is not None else member.name
-        message = await party_channel.send(
-            f"{name} has joined! We're now Donner, Party of {n}!"
+    async def update_party_channel(cls, guild: discord.Guild, reason: str):
+        count = await cls.update_party_size_silently(guild)
+        await cls.get_party_channel(guild).send(
+            f"{reason}\nWe're now Donner, Party of {count}..."
         )
-        await message.add_reaction("😃")
 
     @classmethod
-    async def update_party_size_passively(
-        cls, ctx: Union[discord.Member, SlashContext]
-    ) -> int:
-        party_channel = cls.get_party_channel(ctx)
-        n = cls.get_party_count(ctx)
-        if n >= 0:
-            num = str(n)
-        else:
-            num = "minus" + str(n)
-        await party_channel.edit(name=("party-of-" + num))
+    async def update_party_size_silently(cls, guild: discord.Guild) -> int:
+        party_channel = cls.get_party_channel(guild)
+        n = cls.get_party_count(guild)
+        await party_channel.edit(name=f"party-of-{'minus' if n < 0 else ''}{n}")
         return n
 
     @classmethod
-    def get_party_count(cls, ctx: SlashContext) -> int:
-        solved_category = cls.get_category_by_name(ctx, "Solved")
-        solved_number = len(solved_category.channels)
-        for i in range(2, 10):
-            solved_category = cls.get_category_by_name(ctx, f"Solved {i}")
-            if solved_category is None:
-                break
+    def get_party_count(cls, guild: discord.Guild) -> int:
+        solved_category = cls.get_category_by_name(guild, cls.solved_category_name)
+        solved_number = 0
+        i = 2
+        while solved_category is not None:
             solved_number += len(solved_category.channels)
-        return len(ctx.guild.members) - solved_number
+            solved_category = cls.get_category_by_name(
+                guild, f"{cls.solved_category_name} {i}"
+            )
+            i += 1
+        return len(guild.members) - solved_number
 
     @classmethod
-    def get_party_channel(
-        cls, ctx: Union[discord.Member, SlashContext]
-    ) -> discord.TextChannel:
-        for channel in ctx.guild.text_channels:
+    def get_party_channel(cls, guild: discord.Guild) -> discord.TextChannel:
+        for channel in guild.text_channels:
             if channel.name.startswith("party-of"):
                 return channel

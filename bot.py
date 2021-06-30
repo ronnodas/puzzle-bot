@@ -2,8 +2,9 @@
 # coding: utf-8
 
 import os
+from collections.abc import Callable, Iterable, Iterator
 from contextlib import suppress
-from typing import Any, Callable, Dict, Iterable, Iterator, Optional, Tuple
+from typing import Any, Dict, Optional, Tuple
 
 import discord
 import discord.ext.commands
@@ -16,8 +17,7 @@ import pydrive.drive
 class PuzzleDrive(pydrive.drive.GoogleDrive):
     SAVED_CREDENTIALS_FILE = "drive_credentials.json"
 
-    def __init__(self) -> None:
-        dotenv.load_dotenv()
+    def __init__(self, root_folder) -> None:
         self.authentication = pydrive.auth.GoogleAuth()
         self.authentication.LoadCredentialsFile(PuzzleDrive.SAVED_CREDENTIALS_FILE)
         if self.authentication.credentials is None:
@@ -25,7 +25,7 @@ class PuzzleDrive(pydrive.drive.GoogleDrive):
         self.refresh_token_if_expired()
         super().__init__(self.authentication)
         print("Loaded Google Drive credentials")
-        self.drive_root_folder = os.getenv("DRIVE_ROOT_FOLDER")
+        self.drive_root_folder = root_folder
         self.root_folder_id = self.get_root_folder_id()
         self.solved_folder_id = self.get_solved_folder_id()
 
@@ -135,7 +135,9 @@ class PuzzleBot(discord.ext.commands.Bot):
     solved_category_name = "✅Solved"
     voice_category_name = "🧩Puzzle Voice Channels"
 
-    def __init__(self, guild_id: int, **options: Dict[str, Any]) -> None:
+    def __init__(
+        self, drive_root_folder: str, guild_id: int, **options: Dict[str, Any]
+    ) -> None:
         super().__init__(
             discord.ext.commands.when_mentioned,
             description=self.description,
@@ -143,7 +145,7 @@ class PuzzleBot(discord.ext.commands.Bot):
             **options,
         )
         self.guild_id = guild_id
-        self.drive = PuzzleDrive()
+        self.drive = PuzzleDrive(drive_root_folder)
         self.slash_command = discord_slash.SlashCommand(self)
 
     def get_events(self) -> Iterator[Callable]:
@@ -154,14 +156,7 @@ class PuzzleBot(discord.ext.commands.Bot):
             self.event(event)
         for command, kwargs in self.get_commands():
             self.slash_command.slash(guild_ids=[self.guild_id], **kwargs)(command)
-        try:
-            await self.slash_command.sync_all_commands()
-        except discord.errors.Forbidden as error:
-            print(
-                f"I need more permissions: "
-                f"https://discord.com/api/oauth2/authorize?client_id={self.user.id}&scope=applications.commands"
-            )
-            raise error
+        await self.slash_command.sync_all_commands()
 
     async def on_ready(self) -> None:
         print(
@@ -256,7 +251,7 @@ class PuzzleBot(discord.ext.commands.Bot):
                     "This channel is not associated to a puzzle 🤔", hidden=True
                 )
             return
-        puzzle_title = self.get_puzzle_title_from_context(ctx)
+        puzzle_title = self.get_puzzle_title(ctx.channel)
         response = await ctx.send(f"Marking {puzzle_title} as ✅solved")
         solved_category = self.solved_category(ctx.guild)
         if len(solved_category.channels) == 50:
@@ -275,7 +270,11 @@ class PuzzleBot(discord.ext.commands.Bot):
 
     async def print_oauth_url(self) -> None:
         data = await self.application_info()
-        url = discord.utils.oauth_url(data.id, permissions=self.required_permissions())
+        url = discord.utils.oauth_url(
+            data.id,
+            permissions=self.required_permissions(),
+            scopes=("applications.commands", "bot"),
+        )
         print(f"Add me to your server: {url}")
 
     @classmethod
@@ -324,8 +323,8 @@ class PuzzleBot(discord.ext.commands.Bot):
         await response.add_reaction(reaction)
 
     @classmethod
-    def get_puzzle_title_from_context(cls, ctx: discord_slash.SlashContext) -> str:
-        return ctx.channel.topic.strip()
+    def get_puzzle_title(cls, text_channel: discord.TextChannel) -> str:
+        return text_channel.topic.strip()
 
     @classmethod
     async def add_voice_channel(
@@ -409,5 +408,8 @@ class PuzzleBot(discord.ext.commands.Bot):
 if __name__ == "__main__":
     dotenv.load_dotenv()
     discord_token = os.getenv("DISCORD_TOKEN")
-    bot = PuzzleBot(guild_id=int(os.getenv("DISCORD_GUILD_ID")))
+    bot = PuzzleBot(
+        drive_root_folder=os.getenv("DRIVE_ROOT_FOLDER"),
+        guild_id=int(os.getenv("DISCORD_GUILD_ID")),
+    )
     bot.run(discord_token)
