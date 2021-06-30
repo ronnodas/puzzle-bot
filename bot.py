@@ -98,6 +98,17 @@ class PuzzleDrive(pydrive.drive.GoogleDrive):
         spreadsheet.FetchMetadata()
         return spreadsheet["alternateLink"]
 
+    def remove_spreadsheet(self, title: str) -> None:
+        for folder in [self.root_folder_id, self.solved_folder_id]:
+            search_list = self.ListFile(
+                {
+                    "q": f"mimeType = 'application/vnd.google-apps.spreadsheet' and title = '{title}' and"
+                    f" '{folder}' in parents and trashed = false"
+                }
+            ).GetList()
+            for spreadsheet in search_list:
+                spreadsheet.Trash()
+
     def move_spreadsheet_to_solved(self, title: str) -> None:
         self.refresh_token_if_expired()
         search_list = self.ListFile(
@@ -111,17 +122,6 @@ class PuzzleDrive(pydrive.drive.GoogleDrive):
                 {"kind": "drive#fileLink", "id": self.solved_folder_id}
             ]
             spreadsheet.Upload()
-
-    async def remove_spreadsheet(self, title: str) -> None:
-        for folder in [self.root_folder_id, self.solved_folder_id]:
-            search_list = self.ListFile(
-                {
-                    "q": f"mimeType = 'application/vnd.google-apps.spreadsheet' and title = '{title}' and"
-                    f" '{folder}' in parents and trashed = false"
-                }
-            ).GetList()
-            for spreadsheet in search_list:
-                spreadsheet.Trash()
 
 
 THUMBS_UP = "👍"
@@ -237,7 +237,7 @@ class PuzzleBot(discord.ext.commands.Bot):
         text_channel = discord.utils.get(ctx.guild.text_channels, topic=puzzle_title)
         if text_channel is not None:
             await text_channel.delete()
-        await self.drive.remove_spreadsheet(puzzle_title)
+        self.drive.remove_spreadsheet(puzzle_title)
         with suppress(discord.errors.NotFound):
             await response.add_reaction(THUMBS_UP)
 
@@ -403,12 +403,12 @@ class PuzzleBot(discord.ext.commands.Bot):
             if discord.utils.get(guild.categories, name=name) is None:
                 await guild.create_category(name)
 
-
-if __name__ == "__main__":
-    dotenv.load_dotenv()
-    discord_token = os.getenv("DISCORD_TOKEN")
-    bot = PuzzleBot(
-        drive_root_folder=os.getenv("DRIVE_ROOT_FOLDER"),
-        guild_id=int(os.getenv("DISCORD_GUILD_ID")),
-    )
-    bot.run(discord_token)
+    @classmethod
+    def run_from_dotenv(cls) -> None:
+        dotenv.load_dotenv()
+        discord_token = os.getenv("DISCORD_TOKEN")
+        bot = cls(
+            drive_root_folder=os.getenv("DRIVE_ROOT_FOLDER"),
+            guild_id=int(os.getenv("DISCORD_GUILD_ID")),
+        )
+        bot.run(discord_token)

@@ -74,3 +74,7 @@ class DonnerBot(bot.PuzzleBot):
         for channel in guild.text_channels:
             if channel.name.startswith("party-of"):
                 return channel
+
+
+if __name__ == "__main__":
+    DonnerBot.run_from_dotenv()
