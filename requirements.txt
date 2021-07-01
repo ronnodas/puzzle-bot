@@ -1,4 +1,4 @@
 discord~=1.7.3
-discord-py-slash-command~=2.0.4
+discord-py-slash-command~=2.2.0
 python-dotenv~=0.18.0
 PyDrive~=1.3.1
