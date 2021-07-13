@@ -48,8 +48,8 @@ class PuzzleDrive(pydrive.drive.GoogleDrive):
         try:
             return self.ListFile(
                 {
-                    "q": f"mimeType = 'application/vnd.google-apps.folder' and title = 'Solved' and "
-                    f"'{self.root_folder_id}' in parents"
+                    "q": f"mimeType = 'application/vnd.google-apps.folder' and "
+                    f"title = 'Solved' and '{self.root_folder_id}' in parents"
                 }
             ).GetList()[0]["id"]
         except IndexError:
@@ -68,8 +68,9 @@ class PuzzleDrive(pydrive.drive.GoogleDrive):
         self.refresh_token_if_expired()
         search_list = self.ListFile(
             {
-                "q": f"mimeType = 'application/vnd.google-apps.spreadsheet' and title = '{title}' "
-                f"and '{self.root_folder_id}' in parents and trashed = false"
+                "q": f"mimeType = 'application/vnd.google-apps.spreadsheet' and "
+                f"title = '{title}' and '{self.root_folder_id}' in parents and "
+                f"trashed = false"
             }
         ).GetList()
         if search_list:
@@ -90,8 +91,8 @@ class PuzzleDrive(pydrive.drive.GoogleDrive):
         for folder in [self.root_folder_id, self.solved_folder_id]:
             for spreadsheet in self.ListFile(
                 {
-                    "q": f"mimeType = 'application/vnd.google-apps.spreadsheet' and title = '{title}' and"
-                    f" '{folder}' in parents and trashed = false"
+                    "q": f"mimeType = 'application/vnd.google-apps.spreadsheet' and "
+                    f"title = '{title}' and '{folder}' in parents and trashed = false"
                 }
             ).GetList():
                 spreadsheet.Trash()
@@ -100,8 +101,9 @@ class PuzzleDrive(pydrive.drive.GoogleDrive):
         self.refresh_token_if_expired()
         for spreadsheet in self.ListFile(
             {
-                "q": f"mimeType = 'application/vnd.google-apps.spreadsheet' and title = '{title}' "
-                f"and '{self.root_folder_id}' in parents and trashed = false"
+                "q": f"mimeType = 'application/vnd.google-apps.spreadsheet' and "
+                f"title = '{title}' and '{self.root_folder_id}' in parents and "
+                f"trashed = false"
             }
         ).GetList():
             spreadsheet["parents"] = [
@@ -283,7 +285,7 @@ class PuzzleBot(discord.ext.commands.Bot):
         category = text_channel.category
         if not (cls.is_puzzle_category(category) or cls.is_solved_category(category)):
             await ctx.send(
-                "Voice channels can only be toggled from the corresponding text channel! 🤔",
+                "A 🔊voice channel can only be toggled in a puzzle's text channel 🤔",
                 hidden=True,
             )
             return
