@@ -112,14 +112,18 @@ class PuzzleDrive(pydrive.drive.GoogleDrive):
             spreadsheet.Upload()
 
     def refresh_token_if_expired(self) -> None:
-        if self.authentication.access_token_expired:
+        if not self.authentication.access_token_expired:
+            return
+        try:
             self.authentication.Refresh()
             self.authentication.SaveCredentialsFile(self.saved_credentials_file)
+        except pydrive.auth.RefreshError:
+            self.authentication = self.authenticate()
 
     @classmethod
     def authenticate(cls) -> pydrive.auth.GoogleAuth:
         authorization = pydrive.auth.GoogleAuth()
-        authorization.LocalWebserverAuth()
+        authorization.CommandLineAuth()
         authorization.SaveCredentialsFile(cls.saved_credentials_file)
         print(f"Google authentication saved to {cls.saved_credentials_file}")
         return authorization
