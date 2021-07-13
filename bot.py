@@ -1,14 +1,12 @@
 #!/usr/bin/env python3
 # coding: utf-8
-
-import os
+from configparser import ConfigParser
 from contextlib import suppress
 from typing import Any, Callable, Dict, Iterable, Iterator, Optional, Tuple
 
 import discord
 import discord.ext.commands
 import discord_slash
-import dotenv
 import pydrive.auth
 import pydrive.drive
 
@@ -39,7 +37,7 @@ class PuzzleDrive(pydrive.drive.GoogleDrive):
         except IndexError:
             print(
                 f"Could not find {self.drive_root_folder} in Google Drive. "
-                f"Make sure to correctly set the folder name in .env"
+                f"Make sure to correctly set the folder name in config.ini"
             )
             exit(1)
 
@@ -161,11 +159,8 @@ class PuzzleBot(discord.ext.commands.Bot):
         self.drive = PuzzleDrive(drive_root_folder)
         self.slash_command_handler = discord_slash.SlashCommand(self)
 
-    def get_events(self) -> Iterator[Callable]:
-        yield self.on_ready
-
     async def register_commands_and_events(self) -> None:
-        for event in self.get_events():
+        for event in self.events:
             self.event(event)
         for command, kwargs in self.slash_commands:
             self.slash_command_handler.slash(guild_ids=[self.guild_id], **kwargs)(
@@ -195,6 +190,10 @@ class PuzzleBot(discord.ext.commands.Bot):
     @property
     def active_guild(self) -> discord.Guild:
         return self.get_guild(self.guild_id)
+
+    @property
+    def events(self) -> Iterator[Callable]:
+        yield self.on_ready
 
     @property
     def slash_commands(self) -> Iterator[Tuple[Callable, Dict[str, Any]]]:
@@ -311,13 +310,14 @@ class PuzzleBot(discord.ext.commands.Bot):
         await response.add_reaction(reaction)
 
     @classmethod
-    def run_from_dotenv(cls) -> None:
-        dotenv.load_dotenv()
-        discord_token = os.getenv("DISCORD_TOKEN")
+    def run_from_config(cls) -> None:
+        config = ConfigParser()
+        config.read("config.ini")
         bot = cls(
-            drive_root_folder=os.getenv("DRIVE_ROOT_FOLDER"),
-            guild_id=int(os.getenv("DISCORD_GUILD_ID")),
+            drive_root_folder=config["Google drive"]["root folder"],
+            guild_id=int(config["discord"]["guild id"]),
         )
+        discord_token = config["discord"]["token"]
         bot.run(discord_token)
 
     async def print_oauth_url(self) -> None:
@@ -406,4 +406,4 @@ class PuzzleBot(discord.ext.commands.Bot):
 
 
 if __name__ == "__main__":
-    PuzzleBot.run_from_dotenv()
+    PuzzleBot.run_from_config()

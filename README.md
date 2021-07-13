@@ -8,13 +8,13 @@ This is a discord bot for helping with puzzle hunts, with Google Drive integrati
    obtain `client_secrets.json` and place it in the working directory 
    (see https://pythonhosted.org/PyDrive/quickstart.html#authentication).
 1. Create an application in https://discord.com/developers/applications and obtain the application *token*, 
-   to include in the `.env` file in the next step
+   to include in `config.ini` on the next step
    (see https://discordpy.readthedocs.io/en/stable/discord.html).
-1. Copy `.env.example.` to `.env` and fill in the fields with appropriate data:
-    * `DISCORD_TOKEN`: the discord application token from the previous step
-    * `DISCORD_GUILD_ID`: the id for the discord server that the bot is supposed to run on 
+1. Copy `example-config.ini` to `config.ini` and fill in the fields with appropriate data:
+    * `[discord] > token`: the discord application token from the previous step
+    * `[discord] > guild id`: the id for the discord server that the bot will to run on 
       (open discord in browser and look at the url or use *Developer Mode*)
-    * `DRIVE_ROOT_FOLDER`: the name of the folder to store the spreadsheets in a Google Drive 
+    * `[Google Drive] > root folder`: the name of the folder to store the spreadsheets in a Google Drive 
       that the bot will have access to
 
 ## Running the bot ##
