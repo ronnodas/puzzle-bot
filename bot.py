@@ -161,7 +161,7 @@ class PuzzleBot(discord.ext.commands.Bot):
     async def register_commands_and_events(self) -> None:
         for event in self.get_events():
             self.event(event)
-        for command, kwargs in self.slash_commands():
+        for command, kwargs in self.slash_commands:
             self.slash_command_handler.slash(guild_ids=[self.guild_id], **kwargs)(
                 command
             )
@@ -169,15 +169,15 @@ class PuzzleBot(discord.ext.commands.Bot):
 
     async def on_ready(self) -> None:
         print(
-            f"Logged in as {self.user.name} (id #{self.user.id}) on {self.active_guild()}"
+            f"Logged in as {self.user.name} (id #{self.user.id}) on {self.active_guild}"
         )
-        permissions = self.active_guild().me.guild_permissions
+        permissions = self.active_guild.me.guild_permissions
         if not self.required_permissions <= permissions:
             await self.print_oauth_url()
             exit(1)
         await self.register_commands_and_events()
         await self.create_categories(
-            self.active_guild(),
+            self.active_guild,
             (
                 self.puzzles_category_name,
                 self.solved_category_name,
@@ -186,9 +186,11 @@ class PuzzleBot(discord.ext.commands.Bot):
         )
         print("------")
 
+    @property
     def active_guild(self) -> discord.Guild:
         return self.get_guild(self.guild_id)
 
+    @property
     def slash_commands(self) -> Iterator[Tuple[Callable, Dict[str, Any]]]:
         yield self.puzzle, {
             "description": "Add a puzzle",
@@ -221,6 +223,10 @@ class PuzzleBot(discord.ext.commands.Bot):
         yield self.solve, {
             "description": "Mark a puzzle as solved, use in the puzzle's text channel"
         }
+
+    @property
+    def solved_category(self) -> Optional[discord.CategoryChannel]:
+        return self.get_category(self.active_guild, self.solved_category_name)
 
     async def puzzle(self, ctx: discord_slash.SlashContext, puzzle_title: str) -> None:
         response = await ctx.send(f'Creating 🧩 "{puzzle_title}"')
@@ -261,7 +267,7 @@ class PuzzleBot(discord.ext.commands.Bot):
             return
         puzzle_title = self.get_puzzle_title(ctx.channel)
         response = await ctx.send(f"Marking {puzzle_title} as ✅solved")
-        solved_category = self.solved_category()
+        solved_category = self.solved_category
         if len(solved_category.channels) == 50:
             await response.reply("@@admin The solved category is full! 🈵")
             await response.add_reaction(THUMBS_DOWN)
@@ -307,9 +313,6 @@ class PuzzleBot(discord.ext.commands.Bot):
             guild_id=int(os.getenv("DISCORD_GUILD_ID")),
         )
         bot.run(discord_token)
-
-    def solved_category(self) -> Optional[discord.CategoryChannel]:
-        return self.get_category(self.active_guild(), self.solved_category_name)
 
     async def print_oauth_url(self) -> None:
         data = await self.application_info()
