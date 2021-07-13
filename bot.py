@@ -14,50 +14,42 @@ import pydrive.drive
 
 
 class PuzzleDrive(pydrive.drive.GoogleDrive):
-    SAVED_CREDENTIALS_FILE = "drive_credentials.json"
+    saved_credentials_file = "drive_credentials.json"
 
     def __init__(self, root_folder) -> None:
         self.authentication = pydrive.auth.GoogleAuth()
-        self.authentication.LoadCredentialsFile(PuzzleDrive.SAVED_CREDENTIALS_FILE)
+        self.authentication.LoadCredentialsFile(PuzzleDrive.saved_credentials_file)
         if self.authentication.credentials is None:
             self.authentication = self.authenticate()
         self.refresh_token_if_expired()
         super().__init__(self.authentication)
         print("Loaded Google Drive credentials")
         self.drive_root_folder = root_folder
-        self.root_folder_id = self.get_root_folder_id()
-        self.solved_folder_id = self.get_solved_folder_id()
 
-    @staticmethod
-    def authenticate() -> pydrive.auth.GoogleAuth:
-        authorization = pydrive.auth.GoogleAuth()
-        authorization.LocalWebserverAuth()
-        authorization.SaveCredentialsFile(PuzzleDrive.SAVED_CREDENTIALS_FILE)
-        print(f"Google authentication saved to {PuzzleDrive.SAVED_CREDENTIALS_FILE}")
-        return authorization
-
-    def get_root_folder_id(self) -> str:
+    @property
+    def root_folder_id(self) -> str:
         # could be hardcoded to speed up startup
         try:
-            default_folder_id = self.ListFile(
+            return self.ListFile(
                 {
                     "q": f"mimeType = 'application/vnd.google-apps.folder' and title = "
                     f"'{self.drive_root_folder}'"
                 }
             ).GetList()[0]["id"]
-            return default_folder_id
         except IndexError:
             print(
                 f"Could not find {self.drive_root_folder} in Google Drive. "
                 f"Make sure to correctly set the folder name in .env"
             )
+            exit(1)
 
-    def get_solved_folder_id(self) -> str:
+    @property
+    def solved_folder_id(self) -> str:
         try:
             return self.ListFile(
                 {
-                    "q": f"mimeType = 'application/vnd.google-apps.folder' and title = 'Solved' and "
-                    f"'{self.root_folder_id}' in parents"
+                    "q": f"mimeType = 'application/vnd.google-apps.folder' and "
+                    f"title = 'Solved' and '{self.root_folder_id}' in parents"
                 }
             ).GetList()[0]["id"]
         except IndexError:
@@ -72,17 +64,13 @@ class PuzzleDrive(pydrive.drive.GoogleDrive):
             solved_folder.FetchMetadata()
             return solved_folder["id"]
 
-    def refresh_token_if_expired(self) -> None:
-        if self.authentication.access_token_expired:
-            self.authentication.Refresh()
-            self.authentication.SaveCredentialsFile(self.SAVED_CREDENTIALS_FILE)
-
     def add_spreadsheet(self, title: str) -> str:
         self.refresh_token_if_expired()
         search_list = self.ListFile(
             {
-                "q": f"mimeType = 'application/vnd.google-apps.spreadsheet' and title = '{title}' "
-                f"and '{self.root_folder_id}' in parents and trashed = false"
+                "q": f"mimeType = 'application/vnd.google-apps.spreadsheet' and "
+                f"title = '{title}' and '{self.root_folder_id}' in parents and "
+                f"trashed = false"
             }
         ).GetList()
         if search_list:
@@ -99,29 +87,46 @@ class PuzzleDrive(pydrive.drive.GoogleDrive):
         return spreadsheet["alternateLink"]
 
     def remove_spreadsheet(self, title: str) -> None:
+        self.refresh_token_if_expired()
         for folder in [self.root_folder_id, self.solved_folder_id]:
-            search_list = self.ListFile(
+            for spreadsheet in self.ListFile(
                 {
-                    "q": f"mimeType = 'application/vnd.google-apps.spreadsheet' and title = '{title}' and"
-                    f" '{folder}' in parents and trashed = false"
+                    "q": f"mimeType = 'application/vnd.google-apps.spreadsheet' and "
+                    f"title = '{title}' and '{folder}' in parents and trashed = false"
                 }
-            ).GetList()
-            for spreadsheet in search_list:
+            ).GetList():
                 spreadsheet.Trash()
 
     def move_spreadsheet_to_solved(self, title: str) -> None:
         self.refresh_token_if_expired()
-        search_list = self.ListFile(
+        for spreadsheet in self.ListFile(
             {
-                "q": f"mimeType = 'application/vnd.google-apps.spreadsheet' and title = '{title}' "
-                f"and '{self.root_folder_id}' in parents and trashed = false"
+                "q": f"mimeType = 'application/vnd.google-apps.spreadsheet' and "
+                f"title = '{title}' and '{self.root_folder_id}' in parents and "
+                f"trashed = false"
             }
-        ).GetList()
-        for spreadsheet in search_list:
+        ).GetList():
             spreadsheet["parents"] = [
                 {"kind": "drive#fileLink", "id": self.solved_folder_id}
             ]
             spreadsheet.Upload()
+
+    def refresh_token_if_expired(self) -> None:
+        if not self.authentication.access_token_expired:
+            return
+        try:
+            self.authentication.Refresh()
+            self.authentication.SaveCredentialsFile(self.saved_credentials_file)
+        except pydrive.auth.RefreshError:
+            self.authentication = self.authenticate()
+
+    @classmethod
+    def authenticate(cls) -> pydrive.auth.GoogleAuth:
+        authorization = pydrive.auth.GoogleAuth()
+        authorization.CommandLineAuth()
+        authorization.SaveCredentialsFile(cls.saved_credentials_file)
+        print(f"Google authentication saved to {cls.saved_credentials_file}")
+        return authorization
 
 
 THUMBS_UP = "👍"
@@ -133,6 +138,16 @@ class PuzzleBot(discord.ext.commands.Bot):
     puzzles_category_name = "🧩Puzzles"
     solved_category_name = "✅Solved"
     voice_category_name = "🧩Puzzle Voice Channels"
+    required_permissions = discord.Permissions(
+        add_reactions=True,
+        embed_links=True,
+        manage_channels=True,
+        manage_messages=True,
+        read_messages=True,
+        send_messages=True,
+        view_channel=True,
+        use_slash_commands=True,
+    )
 
     def __init__(
         self, drive_root_folder: str, guild_id: int, **options: Dict[str, Any]
@@ -140,12 +155,11 @@ class PuzzleBot(discord.ext.commands.Bot):
         super().__init__(
             discord.ext.commands.when_mentioned,
             description=self.description,
-            intents=self.get_intents(),
             **options,
         )
         self.guild_id = guild_id
         self.drive = PuzzleDrive(drive_root_folder)
-        self.slash_command = discord_slash.SlashCommand(self)
+        self.slash_command_handler = discord_slash.SlashCommand(self)
 
     def get_events(self) -> Iterator[Callable]:
         yield self.on_ready
@@ -153,16 +167,18 @@ class PuzzleBot(discord.ext.commands.Bot):
     async def register_commands_and_events(self) -> None:
         for event in self.get_events():
             self.event(event)
-        for command, kwargs in self.get_commands():
-            self.slash_command.slash(guild_ids=[self.guild_id], **kwargs)(command)
-        await self.slash_command.sync_all_commands()
+        for command, kwargs in self.slash_commands:
+            self.slash_command_handler.slash(guild_ids=[self.guild_id], **kwargs)(
+                command
+            )
+        await self.slash_command_handler.sync_all_commands()
 
     async def on_ready(self) -> None:
         print(
             f"Logged in as {self.user.name} (id #{self.user.id}) on {self.active_guild}"
         )
         permissions = self.active_guild.me.guild_permissions
-        if not self.required_permissions() <= permissions:
+        if not self.required_permissions <= permissions:
             await self.print_oauth_url()
             exit(1)
         await self.register_commands_and_events()
@@ -180,7 +196,8 @@ class PuzzleBot(discord.ext.commands.Bot):
     def active_guild(self) -> discord.Guild:
         return self.get_guild(self.guild_id)
 
-    def get_commands(self) -> Iterator[Tuple[Callable, Dict[str, Any]]]:
+    @property
+    def slash_commands(self) -> Iterator[Tuple[Callable, Dict[str, Any]]]:
         yield self.puzzle, {
             "description": "Add a puzzle",
             "connector": {"title": "puzzle_title"},
@@ -213,21 +230,25 @@ class PuzzleBot(discord.ext.commands.Bot):
             "description": "Mark a puzzle as solved, use in the puzzle's text channel"
         }
 
+    @property
+    def solved_category(self) -> Optional[discord.CategoryChannel]:
+        return self.get_category(self.active_guild, self.solved_category_name)
+
     async def puzzle(self, ctx: discord_slash.SlashContext, puzzle_title: str) -> None:
         response = await ctx.send(f'Creating 🧩 "{puzzle_title}"')
         puzzle_title = puzzle_title.replace("'", "").replace('"', "")
         channel = discord.utils.get(ctx.guild.text_channels, topic=puzzle_title)
         if channel is not None:
-            await response.reply("There's already a puzzle channel with this name 🤔")
+            await response.reply(f"There's already a puzzle called {puzzle_title} 🤔")
             await response.add_reaction(THUMBS_DOWN)
             return
         link = self.drive.add_spreadsheet(puzzle_title)
-        channel = await self.add_puzzle_text_channel(ctx, puzzle_title)
+        channel = await self.add_puzzle_text_channel(ctx.guild, puzzle_title)
         link_message = await channel.send(
             f"I found a 📔spreadsheet for this puzzle at {link}"
         )
         await link_message.pin()
-        await self.add_voice_channel(ctx.guild, puzzle_title, check_exists=True)
+        await self.add_voice_channel(ctx.guild, puzzle_title)
         await response.add_reaction(THUMBS_UP)
 
     async def remove(self, ctx: discord_slash.SlashContext, puzzle_title: str) -> None:
@@ -252,47 +273,15 @@ class PuzzleBot(discord.ext.commands.Bot):
             return
         puzzle_title = self.get_puzzle_title(ctx.channel)
         response = await ctx.send(f"Marking {puzzle_title} as ✅solved")
-        solved_category = self.solved_category(ctx.guild)
+        solved_category = self.solved_category
         if len(solved_category.channels) == 50:
             await response.reply("@@admin The solved category is full! 🈵")
             await response.add_reaction(THUMBS_DOWN)
             return
-        self.drive.move_spreadsheet_to_solved(puzzle_title)
         await ctx.channel.edit(category=solved_category)
+        self.drive.move_spreadsheet_to_solved(puzzle_title)
         await self.find_and_remove_voice_channel(response, puzzle_title)
         await response.add_reaction(THUMBS_UP)
-
-    def solved_category(
-        self, guild: discord.Guild
-    ) -> Optional[discord.CategoryChannel]:
-        return self.get_category_by_name(guild, self.solved_category_name)
-
-    async def print_oauth_url(self) -> None:
-        data = await self.application_info()
-        url = discord.utils.oauth_url(
-            data.id,
-            permissions=self.required_permissions(),
-            scopes=("applications.commands", "bot"),
-        )
-        print(f"Add me to your server: {url}")
-
-    @classmethod
-    def required_permissions(cls) -> discord.Permissions:
-        return discord.Permissions(
-            add_reactions=True,
-            embed_links=True,
-            manage_channels=True,
-            manage_messages=True,
-            read_messages=True,
-            send_messages=True,
-            view_channel=True,
-            use_slash_commands=True,
-        )
-
-    @classmethod
-    def get_intents(cls) -> discord.Intents:
-        intents = discord.Intents.default()
-        return intents
 
     @classmethod
     async def voice(cls, ctx: discord_slash.SlashContext) -> None:
@@ -300,7 +289,7 @@ class PuzzleBot(discord.ext.commands.Bot):
         category = text_channel.category
         if not (cls.is_puzzle_category(category) or cls.is_solved_category(category)):
             await ctx.send(
-                "Voice channels can only be toggled from the corresponding text channel! 🤔",
+                "A 🔊voice channel can only be toggled in a puzzle's text channel 🤔",
                 hidden=True,
             )
             return
@@ -322,18 +311,33 @@ class PuzzleBot(discord.ext.commands.Bot):
         await response.add_reaction(reaction)
 
     @classmethod
+    def run_from_dotenv(cls) -> None:
+        dotenv.load_dotenv()
+        discord_token = os.getenv("DISCORD_TOKEN")
+        bot = cls(
+            drive_root_folder=os.getenv("DRIVE_ROOT_FOLDER"),
+            guild_id=int(os.getenv("DISCORD_GUILD_ID")),
+        )
+        bot.run(discord_token)
+
+    async def print_oauth_url(self) -> None:
+        data = await self.application_info()
+        url = discord.utils.oauth_url(
+            data.id,
+            permissions=self.required_permissions,
+            scopes=("applications.commands", "bot"),
+        )
+        print(f"Add me to your server: {url}")
+
+    @classmethod
     def get_puzzle_title(cls, text_channel: discord.TextChannel) -> str:
         return text_channel.topic.strip()
 
     @classmethod
     async def add_voice_channel(
-        cls, guild: discord.Guild, name: str, check_exists: bool = False
+        cls, guild: discord.Guild, name: str
     ) -> discord.VoiceChannel:
-        if check_exists:
-            voice_channel = discord.utils.get(guild.voice_channels, name=name)
-            if voice_channel:
-                return voice_channel
-        voice_category = cls.get_category_by_name(guild, cls.voice_category_name)
+        voice_category = cls.get_category(guild, cls.voice_category_name)
         return await guild.create_voice_channel(
             name, category=voice_category, topic=name
         )
@@ -343,9 +347,8 @@ class PuzzleBot(discord.ext.commands.Bot):
         cls, response: discord.Message, name: str
     ) -> None:
         channel = discord.utils.get(response.guild.voice_channels, name=name)
-        if channel is None:
-            return
-        await cls.remove_voice_channel(channel, response)
+        if channel is not None:
+            await cls.remove_voice_channel(channel, response)
 
     @classmethod
     async def remove_voice_channel(
@@ -360,26 +363,16 @@ class PuzzleBot(discord.ext.commands.Bot):
 
     @classmethod
     async def add_puzzle_text_channel(
-        cls, ctx: discord_slash.SlashContext, name: str
+        cls, guild: discord.Guild, name: str
     ) -> discord.TextChannel:
-        puzzle_category = cls.get_category_by_name(ctx.guild, cls.puzzles_category_name)
-        channel = discord.utils.get(ctx.guild.text_channels, topic=name)
+        puzzle_category = cls.get_category(guild, cls.puzzles_category_name)
+        channel = discord.utils.get(guild.text_channels, topic=name)
         if not channel:
-            return await ctx.guild.create_text_channel(
+            return await guild.create_text_channel(
                 name, category=puzzle_category, topic=name
             )
         else:
             return channel
-
-    @classmethod
-    def get_category_by_name(
-        cls, guild: discord.Guild, name: str
-    ) -> discord.CategoryChannel:
-        category = discord.utils.get(guild.categories, name=name)
-        if category is not None:
-            return category
-        cls.create_categories(guild, (name,))
-        return cls.get_category_by_name(guild, name)
 
     @classmethod
     def is_puzzle_category(cls, category: Optional[discord.CategoryChannel]) -> bool:
@@ -390,25 +383,96 @@ class PuzzleBot(discord.ext.commands.Bot):
         return cls.category_has_prefix(category, cls.solved_category_name)
 
     @staticmethod
-    def category_has_prefix(
-        category: Optional[discord.CategoryChannel], prefix: str
-    ) -> bool:
-        return category is not None and category.name.lower().startswith(prefix.lower())
+    def get_category(guild: discord.Guild, name: str) -> discord.CategoryChannel:
+        category = discord.utils.get(guild.categories, name=name)
+        if category is not None:
+            return category
+        PuzzleBot.create_categories(guild, (name,))
+        return PuzzleBot.get_category(guild, name)
 
-    @classmethod
+    @staticmethod
     async def create_categories(
-        cls, guild: discord.Guild, category_iterable: Iterable[str]
+        guild: discord.Guild, category_iterable: Iterable[str]
     ) -> None:
         for name in category_iterable:
             if discord.utils.get(guild.categories, name=name) is None:
                 await guild.create_category(name)
 
+    @staticmethod
+    def category_has_prefix(
+        category: Optional[discord.CategoryChannel], prefix: str
+    ) -> bool:
+        return category is not None and category.name.lower().startswith(prefix.lower())
+
+
+class DonnerBot(PuzzleBot):
+    description = "A bot to help the Donner Party hunt."
+
+    def get_events(self) -> Iterator[callable]:
+        yield from super().get_events()
+        yield from (self.on_member_join, self.on_member_remove)
+
+    @property
+    def slash_commands(self) -> Iterator[Tuple[Callable, Dict[str, Any]]]:
+        yield from super().slash_commands
+        yield self.recount, {
+            "description": "Update party size if it gets out of sync for some reason"
+        }
+
+    async def solve(self, ctx: discord_slash.SlashContext) -> None:
+        await super().solve(ctx)
+        puzzle_title = self.get_puzzle_title(ctx.channel)
+        await self.update_party_channel(ctx.guild, f"Solved puzzle {puzzle_title}.")
+
     @classmethod
-    def run_from_dotenv(cls) -> None:
-        dotenv.load_dotenv()
-        discord_token = os.getenv("DISCORD_TOKEN")
-        bot = cls(
-            drive_root_folder=os.getenv("DRIVE_ROOT_FOLDER"),
-            guild_id=int(os.getenv("DISCORD_GUILD_ID")),
+    async def on_member_join(cls, member: discord.Member) -> None:
+        await cls.update_party_channel(
+            member.guild, f"{member.display_name} has joined 😃"
         )
-        bot.run(discord_token)
+
+    @classmethod
+    async def on_member_remove(cls, member: discord.Member) -> None:
+        await cls.update_party_channel(
+            member.guild, f"{member.display_name} has left️ ☹"
+        )
+
+    @classmethod
+    async def recount(cls, ctx: discord_slash.SlashContext) -> None:
+        response = await ctx.send("Updating party size", hidden=True)
+        await cls.update_party_size_silently(ctx.guild)
+        await response.add_reaction(THUMBS_UP)
+
+    @classmethod
+    async def update_party_channel(cls, guild: discord.Guild, reason: str):
+        count = await cls.update_party_size_silently(guild)
+        await cls.get_party_channel(guild).send(
+            f"{reason}\nWe're now Donner, Party of {count}..."
+        )
+
+    @classmethod
+    async def update_party_size_silently(cls, guild: discord.Guild) -> int:
+        party_channel = cls.get_party_channel(guild)
+        n = cls.get_party_count(guild)
+        await party_channel.edit(name=f"party-of-{'minus' if n < 0 else ''}{n}")
+        return n
+
+    @classmethod
+    def get_party_count(cls, guild: discord.Guild) -> int:
+        solved_category = cls.get_category(guild, cls.solved_category_name)
+        solved_number = 0
+        i = 2
+        while solved_category is not None:
+            solved_number += len(solved_category.channels)
+            solved_category = cls.get_category(guild, f"{cls.solved_category_name} {i}")
+            i += 1
+        return len(guild.members) - solved_number
+
+    @classmethod
+    def get_party_channel(cls, guild: discord.Guild) -> discord.TextChannel:
+        for channel in guild.text_channels:
+            if channel.name.startswith("party-of"):
+                return channel
+
+
+if __name__ == "__main__":
+    DonnerBot.run_from_dotenv()

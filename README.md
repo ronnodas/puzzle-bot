@@ -18,7 +18,7 @@ This is a discord bot for helping with puzzle hunts, with Google Drive integrati
       that the bot will have access to
 
 ## Running the bot ##
-1. Run `donnerbot.py`, either by making it executable or with `python3 donnerbot.py`.
+1. Run `bot.py`, either by making it executable or with `python3 bot.py`.
 1. If it outputs a link or opens your browser then follow that link to authenticate the bot 
    and give it the required permissions. Most of these should be one time, on first run.
 1. Rerun the bot if it crashes.
