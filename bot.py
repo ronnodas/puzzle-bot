@@ -22,27 +22,27 @@ class PuzzleDrive(pydrive.drive.GoogleDrive):
         self.refresh_token_if_expired()
         super().__init__(self.authentication)
         print("Loaded Google Drive credentials")
-        self.drive_root_folder = root_folder
+        self.root_folder_id = self.get_root_folder_id(root_folder)
+        self.solved_folder_id = self.get_solved_folder_id()
 
-    @property
-    def root_folder_id(self) -> str:
+    def get_root_folder_id(self, root_folder_title: str) -> str:
+        self.refresh_token_if_expired()
         # could be hardcoded to speed up startup
         try:
             return self.ListFile(
                 {
                     "q": f"mimeType = 'application/vnd.google-apps.folder' and title = "
-                    f"'{self.drive_root_folder}'"
+                    f"'{root_folder_title}'"
                 }
             ).GetList()[0]["id"]
         except IndexError:
             print(
-                f"Could not find {self.drive_root_folder} in Google Drive. "
+                f"Could not find {root_folder_title} in Google Drive. "
                 f"Make sure to correctly set the folder name in config.ini"
             )
             exit(1)
 
-    @property
-    def solved_folder_id(self) -> str:
+    def get_solved_folder_id(self) -> str:
         try:
             return self.ListFile(
                 {
