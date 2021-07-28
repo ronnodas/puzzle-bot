@@ -14,12 +14,10 @@ import pydrive.drive
 class PuzzleDrive(pydrive.drive.GoogleDrive):
     saved_credentials_file = "drive_credentials.json"
 
-    def __init__(self, root_folder) -> None:
-        self.authentication = pydrive.auth.GoogleAuth()
-        self.authentication.LoadCredentialsFile(PuzzleDrive.saved_credentials_file)
+    def __init__(self, root_folder: str) -> None:
+        self.authentication = self.get_authentication()
         if self.authentication.credentials is None:
-            self.authentication = self.authenticate()
-        self.refresh_token_if_expired()
+            self.authenticate_in_command_line()
         super().__init__(self.authentication)
         print("Loaded Google Drive credentials")
         self.root_folder_id = self.get_root_folder_id(root_folder)
@@ -116,15 +114,18 @@ class PuzzleDrive(pydrive.drive.GoogleDrive):
             self.authentication.Refresh()
             self.authentication.SaveCredentialsFile(self.saved_credentials_file)
         except pydrive.auth.RefreshError:
-            self.authentication = self.authenticate()
+            self.authenticate_in_command_line()
+
+    def authenticate_in_command_line(self) -> None:
+        self.authentication.CommandLineAuth()
+        self.authentication.SaveCredentialsFile(self.saved_credentials_file)
+        print(f"Google authentication saved to {self.saved_credentials_file}")
 
     @classmethod
-    def authenticate(cls) -> pydrive.auth.GoogleAuth:
-        authorization = pydrive.auth.GoogleAuth()
-        authorization.CommandLineAuth()
-        authorization.SaveCredentialsFile(cls.saved_credentials_file)
-        print(f"Google authentication saved to {cls.saved_credentials_file}")
-        return authorization
+    def get_authentication(cls) -> pydrive.auth.GoogleAuth:
+        authentication = pydrive.auth.GoogleAuth()
+        authentication.LoadCredentialsFile(cls.saved_credentials_file)
+        return authentication
 
 
 THUMBS_UP = "👍"
