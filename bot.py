@@ -7,6 +7,7 @@ from typing import Any, Callable, Dict, Iterable, Iterator, Optional, Tuple
 import discord
 import discord.ext.commands
 import discord_slash
+import discord_slash.utils.manage_commands
 import pydrive.auth
 import pydrive.drive
 
@@ -212,7 +213,15 @@ class PuzzleBot(discord.ext.commands.Bot):
         }
         yield self.remove, {
             "description": "Remove a puzzle",
-            "permissions": {"administrator": True},
+            "permissions": {
+                self.guild_id: [
+                    discord_slash.utils.manage_commands.create_permission(
+                        self.admin_role.id,
+                        discord_slash.model.SlashCommandPermissionType.ROLE,
+                        True,
+                    )
+                ]
+            },
             "connector": {"title": "puzzle_title"},
             "options": [
                 {
@@ -229,6 +238,10 @@ class PuzzleBot(discord.ext.commands.Bot):
         yield self.solve, {
             "description": "Mark a puzzle as solved, use in the puzzle's text channel"
         }
+
+    @property
+    def admin_role(self) -> discord.Role:
+        return discord.utils.get(self.active_guild.roles, name="@admin")
 
     @property
     def solved_category(self) -> Optional[discord.CategoryChannel]:
@@ -275,7 +288,9 @@ class PuzzleBot(discord.ext.commands.Bot):
         response = await ctx.send(f"Marking {puzzle_title} as ✅solved")
         solved_category = self.solved_category
         if len(solved_category.channels) == 50:
-            await response.reply("@@admin The solved category is full! 🈵")
+            await response.reply(
+                f"{self.admin_role.mention} The solved category is full! 🈵"
+            )
             await response.add_reaction(THUMBS_DOWN)
             return
         await ctx.channel.edit(category=solved_category)
