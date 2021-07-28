@@ -262,6 +262,7 @@ class PuzzleBot(discord.ext.commands.Bot):
         )
         await link_message.pin()
         await self.add_voice_channel(ctx.guild, puzzle_title)
+        await response.edit(content=f'Creating 🧩 "{puzzle_title}" at {channel.mention}')
         await response.add_reaction(THUMBS_UP)
 
     async def remove(self, ctx: discord_slash.SlashContext, puzzle_title: str) -> None:
