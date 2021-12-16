@@ -1,5 +1,4 @@
-puzzball*
-.env
+config.ini
 .idea*
 *.json
 venv

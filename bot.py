@@ -1,14 +1,13 @@
 #!/usr/bin/env python3
 # coding: utf-8
-
-import os
+from configparser import ConfigParser
 from contextlib import suppress
 from typing import Any, Callable, Dict, Iterable, Iterator, Optional, Tuple
 
 import discord
 import discord.ext.commands
 import discord_slash
-import dotenv
+import discord_slash.utils.manage_commands
 import pydrive.auth
 import pydrive.drive
 
@@ -16,35 +15,33 @@ import pydrive.drive
 class PuzzleDrive(pydrive.drive.GoogleDrive):
     saved_credentials_file = "drive_credentials.json"
 
-    def __init__(self, root_folder) -> None:
-        self.authentication = pydrive.auth.GoogleAuth()
-        self.authentication.LoadCredentialsFile(PuzzleDrive.saved_credentials_file)
+    def __init__(self, root_folder: str) -> None:
+        self.authentication = self.get_authentication()
         if self.authentication.credentials is None:
-            self.authentication = self.authenticate()
-        self.refresh_token_if_expired()
+            self.authenticate_in_command_line()
         super().__init__(self.authentication)
         print("Loaded Google Drive credentials")
-        self.drive_root_folder = root_folder
+        self.root_folder_id = self.get_root_folder_id(root_folder)
+        self.solved_folder_id = self.get_solved_folder_id()
 
-    @property
-    def root_folder_id(self) -> str:
+    def get_root_folder_id(self, root_folder_title: str) -> str:
+        self.refresh_token_if_expired()
         # could be hardcoded to speed up startup
         try:
             return self.ListFile(
                 {
                     "q": f"mimeType = 'application/vnd.google-apps.folder' and title = "
-                    f"'{self.drive_root_folder}'"
+                    f"'{root_folder_title}'"
                 }
             ).GetList()[0]["id"]
         except IndexError:
             print(
-                f"Could not find {self.drive_root_folder} in Google Drive. "
-                f"Make sure to correctly set the folder name in .env"
+                f"Could not find {root_folder_title} in Google Drive. "
+                f"Make sure to correctly set the folder name in config.ini"
             )
             exit(1)
 
-    @property
-    def solved_folder_id(self) -> str:
+    def get_solved_folder_id(self) -> str:
         try:
             return self.ListFile(
                 {
@@ -118,15 +115,18 @@ class PuzzleDrive(pydrive.drive.GoogleDrive):
             self.authentication.Refresh()
             self.authentication.SaveCredentialsFile(self.saved_credentials_file)
         except pydrive.auth.RefreshError:
-            self.authentication = self.authenticate()
+            self.authenticate_in_command_line()
+
+    def authenticate_in_command_line(self) -> None:
+        self.authentication.CommandLineAuth()
+        self.authentication.SaveCredentialsFile(self.saved_credentials_file)
+        print(f"Google authentication saved to {self.saved_credentials_file}")
 
     @classmethod
-    def authenticate(cls) -> pydrive.auth.GoogleAuth:
-        authorization = pydrive.auth.GoogleAuth()
-        authorization.CommandLineAuth()
-        authorization.SaveCredentialsFile(cls.saved_credentials_file)
-        print(f"Google authentication saved to {cls.saved_credentials_file}")
-        return authorization
+    def get_authentication(cls) -> pydrive.auth.GoogleAuth:
+        authentication = pydrive.auth.GoogleAuth()
+        authentication.LoadCredentialsFile(cls.saved_credentials_file)
+        return authentication
 
 
 THUMBS_UP = "👍"
@@ -161,11 +161,8 @@ class PuzzleBot(discord.ext.commands.Bot):
         self.drive = PuzzleDrive(drive_root_folder)
         self.slash_command_handler = discord_slash.SlashCommand(self)
 
-    def get_events(self) -> Iterator[Callable]:
-        yield self.on_ready
-
     async def register_commands_and_events(self) -> None:
-        for event in self.get_events():
+        for event in self.events:
             self.event(event)
         for command, kwargs in self.slash_commands:
             self.slash_command_handler.slash(guild_ids=[self.guild_id], **kwargs)(
@@ -197,6 +194,10 @@ class PuzzleBot(discord.ext.commands.Bot):
         return self.get_guild(self.guild_id)
 
     @property
+    def events(self) -> Iterator[Callable]:
+        yield self.on_ready
+
+    @property
     def slash_commands(self) -> Iterator[Tuple[Callable, Dict[str, Any]]]:
         yield self.puzzle, {
             "description": "Add a puzzle",
@@ -212,7 +213,15 @@ class PuzzleBot(discord.ext.commands.Bot):
         }
         yield self.remove, {
             "description": "Remove a puzzle",
-            "permissions": {"administrator": True},
+            "permissions": {
+                self.guild_id: [
+                    discord_slash.utils.manage_commands.create_permission(
+                        self.admin_role.id,
+                        discord_slash.model.SlashCommandPermissionType.ROLE,
+                        True,
+                    )
+                ]
+            },
             "connector": {"title": "puzzle_title"},
             "options": [
                 {
@@ -229,6 +238,10 @@ class PuzzleBot(discord.ext.commands.Bot):
         yield self.solve, {
             "description": "Mark a puzzle as solved, use in the puzzle's text channel"
         }
+
+    @property
+    def admin_role(self) -> discord.Role:
+        return discord.utils.get(self.active_guild.roles, name="@admin")
 
     @property
     def solved_category(self) -> Optional[discord.CategoryChannel]:
@@ -249,6 +262,7 @@ class PuzzleBot(discord.ext.commands.Bot):
         )
         await link_message.pin()
         await self.add_voice_channel(ctx.guild, puzzle_title)
+        await response.edit(content=f'Creating 🧩 "{puzzle_title}" at {channel.mention}')
         await response.add_reaction(THUMBS_UP)
 
     async def remove(self, ctx: discord_slash.SlashContext, puzzle_title: str) -> None:
@@ -275,7 +289,9 @@ class PuzzleBot(discord.ext.commands.Bot):
         response = await ctx.send(f"Marking {puzzle_title} as ✅solved")
         solved_category = self.solved_category
         if len(solved_category.channels) == 50:
-            await response.reply("@@admin The solved category is full! 🈵")
+            await response.reply(
+                f"{self.admin_role.mention} The solved category is full! 🈵"
+            )
             await response.add_reaction(THUMBS_DOWN)
             return
         await ctx.channel.edit(category=solved_category)
@@ -311,13 +327,14 @@ class PuzzleBot(discord.ext.commands.Bot):
         await response.add_reaction(reaction)
 
     @classmethod
-    def run_from_dotenv(cls) -> None:
-        dotenv.load_dotenv()
-        discord_token = os.getenv("DISCORD_TOKEN")
+    def run_from_config(cls) -> None:
+        config = ConfigParser()
+        config.read("config.ini")
         bot = cls(
-            drive_root_folder=os.getenv("DRIVE_ROOT_FOLDER"),
-            guild_id=int(os.getenv("DISCORD_GUILD_ID")),
+            drive_root_folder=config["Google drive"]["root folder"],
+            guild_id=int(config["discord"]["guild id"]),
         )
+        discord_token = config["discord"]["token"]
         bot.run(discord_token)
 
     async def print_oauth_url(self) -> None:
@@ -475,4 +492,4 @@ class DonnerBot(PuzzleBot):
 
 
 if __name__ == "__main__":
-    DonnerBot.run_from_dotenv()
+    DonnerBot.run_from_config()
