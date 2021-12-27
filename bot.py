@@ -383,7 +383,3 @@ class PuzzleBot:
         ):
             if disnake.utils.get(guild.categories, name=category) is None:
                 await guild.create_category(category)
-
-
-if __name__ == "__main__":
-    PuzzleBot.run_from_config()
