@@ -1,16 +1,17 @@
 #!/usr/bin/env python3
 # coding: utf-8
-from collections.abc import Coroutine, Iterator, Iterable
+from collections.abc import Callable, Coroutine, Iterator
 from configparser import ConfigParser
-from typing import Any
+from typing import Optional, Union
 
-import interactions
-import interactions.api
-import pydrive.auth
-import pydrive.drive
+import disnake
+import pydrive2.auth  # type: ignore
+import pydrive2.drive  # type: ignore
+from disnake.ext import commands
+from disnake.interactions import ApplicationCommandInteraction as Interaction
 
 
-class PuzzleDrive(pydrive.drive.GoogleDrive):
+class PuzzleDrive(pydrive2.drive.GoogleDrive):
     saved_credentials_file = "drive_credentials.json"
 
     def __init__(self, root_folder: str) -> None:
@@ -61,14 +62,13 @@ class PuzzleDrive(pydrive.drive.GoogleDrive):
 
     def add_spreadsheet(self, title: str) -> str:
         self.refresh_token_if_expired()
-        search_list = self.ListFile(
+        if search_list := self.ListFile(
             {
                 "q": f"mimeType = 'application/vnd.google-apps.spreadsheet' and "
                 f"title = '{title}' and '{self.root_folder_id}' in parents and "
                 f"trashed = false"
             }
-        ).GetList()
-        if search_list:
+        ).GetList():
             return search_list[0]["alternateLink"]
         spreadsheet = self.CreateFile(
             {
@@ -112,7 +112,7 @@ class PuzzleDrive(pydrive.drive.GoogleDrive):
         try:
             self.authentication.Refresh()
             self.authentication.SaveCredentialsFile(self.saved_credentials_file)
-        except pydrive.auth.RefreshError:
+        except pydrive2.auth.RefreshError:
             self.authenticate_in_command_line()
 
     def authenticate_in_command_line(self) -> None:
@@ -121,8 +121,8 @@ class PuzzleDrive(pydrive.drive.GoogleDrive):
         print(f"Google authentication saved to {self.saved_credentials_file}")
 
     @classmethod
-    def get_authentication(cls) -> pydrive.auth.GoogleAuth:
-        authentication = pydrive.auth.GoogleAuth()
+    def get_authentication(cls) -> pydrive2.auth.GoogleAuth:
+        authentication = pydrive2.auth.GoogleAuth()
         authentication.LoadCredentialsFile(cls.saved_credentials_file)
         return authentication
 
@@ -131,89 +131,200 @@ THUMBS_UP = "👍"
 THUMBS_DOWN = "👎"
 
 
-class PuzzleBot(interactions.Client):
+async def get_category(guild: disnake.Guild, name: str) -> disnake.CategoryChannel:
+    category = disnake.utils.get(guild.categories, name=name)
+    return await guild.create_category(name) if category is None else category
+
+
+def title_converter(_, title: str) -> str:
+    return title.replace("'", "").replace('"', "")
+
+
+def category_has_prefix(
+    category: Optional[disnake.CategoryChannel], prefix: str
+) -> bool:
+    return category is not None and category.name.lower().startswith(prefix.lower())
+
+
+title_param = commands.Param(
+    name="title",
+    description="Title of the puzzle including whatever characters",
+    converter=title_converter,
+)
+
+
+async def add_reaction(interaction: Interaction, emoji: str) -> None:
+    message = await interaction.original_message()
+    await message.add_reaction(emoji)
+
+
+def get_admin_mention_or_empty(guild: disnake.Guild) -> str:
+    admin_role = disnake.utils.get(guild.roles, name="@admin")
+    return admin_role.mention if admin_role is not None else ""
+
+
+class PuzzleBot:
     description = "A bot to help puzzle hunts"
     puzzles_category_name = "🧩Puzzles"
     solved_category_name = "✅Solved"
     voice_category_name = "🧩Puzzle Voice Channels"
 
-    def __init__(
-        self, token: str, guild_id: int, drive_root_folder: str, **options
-    ) -> None:
-        super().__init__(
-            token=token,
-            **options,
-        )
+    def __init__(self, token: str, guild_id: int, drive_root_folder: str) -> None:
+        self.token = token
         self.guild_id = guild_id
+        self.client = commands.InteractionBot(test_guilds=[guild_id])
 
         self.drive = PuzzleDrive(drive_root_folder)
         for event in self.events:
-            self.event(event)
-        for command, options in self.commands:
-            self.command(**options)(command)
+            self.client.event(event)
+        self.register_commands()
+
+    def start(self) -> None:
+        self.client.run(self.token)
 
     @property
-    def events(self) -> Iterator[Coroutine]:
+    def events(self) -> Iterator[Callable[[], Coroutine]]:
         yield self.on_ready
 
-    @property
-    def commands(self) -> Iterator[tuple[Coroutine, dict]]:
-        yield self.add_puzzle, {
-            "name": "puzzle",
-            "description": "Add a puzzle",
-            "scope": [self.guild_id],
-            "options": [
-                {
-                    "name": "puzzle_title",
-                    "description": "Title of the puzzle including whatever characters",
-                    "type": interactions.OptionType.STRING,
-                    "required": True,
-                }
-            ],
-        }
+    def register_commands(self) -> None:
+        self.client.slash_command(name="puzzle", description="Add a puzzle")(
+            self.add_puzzle
+        )
+        self.client.slash_command(
+            description="Toggle voice channel, use in the puzzle's text channel"
+        )(self.voice)
+        self.client.slash_command(
+            description="Solve puzzle, use in the puzzle's text channel"
+        )(self.solve)
+        self.client.slash_command(
+            name="remove",
+            description="Remove a puzzle",
+            default_member_permissions=disnake.Permissions(administrator=True),
+        )(self.remove_puzzle)
 
-    @property
-    async def channels(self) -> Iterator[interactions.Channel]:
-        return [
-            interactions.Channel(**data)
-            for data in self.http.get_all_channels(self.guild_id)
-        ]
+    # @property
+    # async def channels(self) -> Iterator[interactions.Channel]:
+    #     return [
+    #         interactions.Channel(**data)
+    #         for data in self.http.get_all_channels(self.guild_id)
+    #     ]
 
     async def on_ready(self) -> None:
-        print(f"Logged in as {self.me.name} (id #{self.me.id})")
+        await self.create_categories(self.client.get_guild(self.guild_id))
+        print(f"Logged in as {self.client.user.name} (id #{self.client.user.id})")
 
-    async def add_puzzle(self, ctx, puzzle_title: str) -> None:
-        response = await ctx.send(f'Creating 🧩 "{puzzle_title}"')
-        puzzle_title = puzzle_title.replace("'", "").replace('"', "")
-
-        channel = self.get(await self.channels, topic=puzzle_title)
-        if channel is not None:
-            await response.reply(f"There's already a puzzle called {puzzle_title} 🤔")
-            await response.add_reaction(THUMBS_DOWN)
-            return
+    async def add_puzzle(
+        self,
+        interaction: Interaction,
+        puzzle_title: str = title_param,
+    ) -> None:
+        guild = interaction.guild
+        if guild is None:
+            raise ValueError("Cannot access guild")
+        await interaction.send(f"Creating puzzle {puzzle_title}")
+        existing_channel = disnake.utils.get(guild.text_channels, topic=puzzle_title)
+        if existing_channel is not None:
+            await interaction.send(f"There's already a puzzle called {puzzle_title} 🤔")
+            await add_reaction(interaction, THUMBS_DOWN)
         link = self.drive.add_spreadsheet(puzzle_title)
-        channel = await self.add_puzzle_text_channel(ctx.guild, puzzle_title)
+        channel = await self.add_puzzle_text_channel(guild, puzzle_title)
         link_message = await channel.send(
             f"I found a 📔spreadsheet for this puzzle at {link}"
         )
         await link_message.pin()
-        await self.add_voice_channel(ctx.guild, puzzle_title)
-        await response.edit(content=f'Creating 🧩 "{puzzle_title}" at {channel.mention}')
-        await response.add_reaction(THUMBS_UP)
+        await self.add_voice_channel(guild, puzzle_title)
+        await interaction.edit_original_message(
+            content=f'Created 🧩 "{puzzle_title}" at {channel.mention}'
+        )
+        await add_reaction(interaction, THUMBS_UP)
 
-    async def get_guild(self) -> interactions.Guild:
-        guild_data = await self.http.get_guild(self.guild_id)
-        return interactions.Guild(**guild_data)
+    async def solve(self, interaction: Interaction) -> None:
+        text_channel = interaction.channel
+        puzzle_title = self.get_puzzle_title(text_channel, unsolved=True)
+        if not isinstance(text_channel, disnake.TextChannel) or puzzle_title is None:
+            if category_has_prefix(text_channel.category, self.solved_category_name):
+                await interaction.send("Puzzle already solved 🧠", ephemeral=True)
+            else:
+                await interaction.send(
+                    "This channel is not associated to a puzzle 🤔", ephemeral=True
+                )
+            return
+        guild = interaction.guild
+        if guild is None:
+            raise ValueError("Cannot access guild")
+        await interaction.send(f"Marking {puzzle_title} as ✅solved")
+        solved_category = await get_category(guild, self.solved_category_name)
+        if len(solved_category.channels) == 50:
+            await interaction.send(
+                f"{get_admin_mention_or_empty(guild)} The solved category is full! 🈵"
+            )
+            return await add_reaction(interaction, THUMBS_DOWN)
+        await text_channel.edit(category=solved_category)
+        self.drive.move_spreadsheet_to_solved(puzzle_title)
+        await self.find_and_remove_voice_channel(interaction, puzzle_title)
+        await add_reaction(interaction, THUMBS_UP)
 
-    async def remove_puzzle(self) -> None:
-        pass
+    async def remove_puzzle(
+        self, interaction: Interaction, puzzle_title: str = title_param
+    ) -> None:
+        guild = interaction.guild
+        if guild is None:
+            raise ValueError("Cannot access guild")
+        await interaction.send(f'Removing "{puzzle_title}"')
+        await self.find_and_remove_voice_channel(interaction, puzzle_title)
+        text_channel = disnake.utils.get(guild.text_channels, topic=puzzle_title)
+        if text_channel is not None:
+            await text_channel.delete()
+        self.drive.remove_spreadsheet(puzzle_title)
+        await add_reaction(interaction, THUMBS_UP)
 
-    async def solve(self) -> None:
-        pass
+    async def voice(self, interaction: Interaction) -> None:
+        guild = interaction.guild
+        if guild is None:
+            raise ValueError("Cannot access guild")
+        text_channel = interaction.channel
+        puzzle_title = self.get_puzzle_title(text_channel)
+        if puzzle_title is None:
+            await interaction.send(
+                "A 🔊voice channel can only be toggled in a puzzle's text channel 🤔",
+                ephemeral=True,
+            )
+            return
+        await interaction.send(
+            f"Toggling 🔊voice channel for {puzzle_title}", delete_after=60
+        )
+        voice_channel = disnake.utils.get(guild.voice_channels, name=puzzle_title)
+        if voice_channel is not None:
+            reaction = (
+                THUMBS_UP
+                if await self.remove_voice_channel(voice_channel, interaction)
+                else THUMBS_DOWN
+            )
+        else:
+            await self.add_voice_channel(guild, puzzle_title)
+            reaction = THUMBS_UP
+        await add_reaction(interaction, reaction)
+
+    def get_puzzle_title(
+        self,
+        channel: Union[disnake.TextChannel, disnake.Thread, disnake.VoiceChannel],
+        unsolved: bool = False,
+    ) -> Optional[str]:
+        if not isinstance(channel, disnake.TextChannel) or channel.topic is None:
+            return None
+        category = channel.category
+        if category_has_prefix(category, self.puzzles_category_name) or (
+            (not unsolved) and category_has_prefix(category, self.solved_category_name)
+        ):
+            return channel.topic.strip()
+        return None
 
     @classmethod
-    async def voice(cls) -> None:
-        pass
+    async def add_voice_channel(
+        cls, guild: disnake.Guild, name: str
+    ) -> disnake.VoiceChannel:
+        voice_category = await get_category(guild, cls.voice_category_name)
+        return await guild.create_voice_channel(name=name, category=voice_category)
 
     @classmethod
     def run_from_config(cls) -> None:
@@ -226,33 +337,51 @@ class PuzzleBot(interactions.Client):
         )
         bot.start()
 
-    @staticmethod
-    def get(iterable: Iterable, **parameters: Any) -> Any:
-        print(parameters)
-        for item in iterable:
-            if all(getattr(item, name) == value for name, value in parameters.items()):
-                return item
-        return None
-
-    def add_puzzle_text_channel(
-        self, guild: interactions.api.models.Guild, puzzle_title: str
-    ) -> interactions.Channel:
-        puzzle_category_id = self.puzzle_category(guild)
-        return await guild.create_channel(
-            name=puzzle_title,
-            type=interactions.api.models.channel.ChannelType.GUILD_TEXT,
-            topic=puzzle_title,
-            parent_id=puzzle_category_id,
+    @classmethod
+    async def add_puzzle_text_channel(
+        cls, guild: disnake.Guild, puzzle_title: str
+    ) -> disnake.TextChannel:
+        puzzle_category_id = await cls.puzzle_category(guild)
+        return await guild.create_text_channel(
+            name=puzzle_title, topic=puzzle_title, category=puzzle_category_id
         )
 
-    @property
-    def puzzle_category(self, guild):
-        return cls.get_category(guild, "🧩Puzzles")
+    @classmethod
+    async def find_and_remove_voice_channel(
+        cls, interaction: Interaction, name: str
+    ) -> None:
+        guild = interaction.guild
+        if guild is None:
+            raise ValueError("Could not access message guild")
+        channel = disnake.utils.get(guild.voice_channels, name=name)
+        if channel is not None:
+            await cls.remove_voice_channel(channel, interaction)
 
+    @classmethod
+    async def remove_voice_channel(
+        cls, voice_channel: disnake.VoiceChannel, interaction: Interaction
+    ) -> bool:
+        if voice_channel.members:
+            await interaction.send("Not removing voice channel in use 🗣️")
+            return False
+        else:
+            await voice_channel.delete()
+            return True
 
-class DonnerBot(PuzzleBot):
-    description = "A bot to help the Donner Party hunt."
+    @classmethod
+    async def puzzle_category(cls, guild: disnake.Guild) -> disnake.CategoryChannel:
+        return await get_category(guild, cls.puzzles_category_name)
+
+    @classmethod
+    async def create_categories(cls, guild: disnake.Guild) -> None:
+        for category in (
+            cls.puzzles_category_name,
+            cls.voice_category_name,
+            cls.solved_category_name,
+        ):
+            if disnake.utils.get(guild.categories, name=category) is None:
+                await guild.create_category(category)
 
 
 if __name__ == "__main__":
-    DonnerBot.run_from_config()
+    PuzzleBot.run_from_config()
