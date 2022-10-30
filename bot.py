@@ -2,13 +2,15 @@
 # coding: utf-8
 from collections.abc import Callable, Coroutine, Iterator
 from configparser import ConfigParser
-from typing import Optional, Union
+from typing import Any, Optional, Union, cast
 
 import disnake
 import pydrive2.auth  # type: ignore
 import pydrive2.drive  # type: ignore
 from disnake.ext import commands
 from disnake.interactions import ApplicationCommandInteraction as Interaction
+
+Channel = Union[disnake.TextChannel, disnake.Thread, disnake.VoiceChannel]
 
 
 class PuzzleDrive(pydrive2.drive.GoogleDrive):
@@ -183,7 +185,7 @@ class PuzzleBot:
         self.client.run(self.token)
 
     @property
-    def events(self) -> Iterator[Callable[[], Coroutine]]:
+    def events(self) -> Iterator[Callable[[Any], Coroutine]]:
         yield self.on_ready
 
     def register_commands(self) -> None:
@@ -239,7 +241,8 @@ class PuzzleBot:
         await add_reaction(interaction, THUMBS_UP)
 
     async def solve(self, interaction: Interaction) -> None:
-        text_channel = interaction.channel
+        text_channel = cast(Channel, interaction.channel)
+        # TODO should not need this cast since checking if TextChannel
         puzzle_title = self.get_puzzle_title(text_channel, unsolved=True)
         if not isinstance(text_channel, disnake.TextChannel) or puzzle_title is None:
             if category_has_prefix(text_channel.category, self.solved_category_name):
@@ -282,7 +285,8 @@ class PuzzleBot:
         guild = interaction.guild
         if guild is None:
             raise ValueError("Cannot access guild")
-        text_channel = interaction.channel
+        text_channel = cast(Channel, interaction.channel)
+        # TODO should not need this cast since checking if TextChannel
         puzzle_title = self.get_puzzle_title(text_channel)
         if puzzle_title is None:
             await interaction.send(
@@ -306,9 +310,7 @@ class PuzzleBot:
         await add_reaction(interaction, reaction)
 
     def get_puzzle_title(
-        self,
-        channel: Union[disnake.TextChannel, disnake.Thread, disnake.VoiceChannel],
-        unsolved: bool = False,
+        self, channel: Channel, unsolved: bool = False
     ) -> Optional[str]:
         if not isinstance(channel, disnake.TextChannel) or channel.topic is None:
             return None
