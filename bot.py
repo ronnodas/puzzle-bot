@@ -133,7 +133,9 @@ THUMBS_UP = "👍"
 THUMBS_DOWN = "👎"
 
 
-async def get_category(guild: disnake.Guild, name: str) -> disnake.CategoryChannel:
+async def find_or_make_category(
+    guild: disnake.Guild, name: str
+) -> disnake.CategoryChannel:
     category = disnake.utils.get(guild.categories, name=name)
     return await guild.create_category(name) if category is None else category
 
@@ -256,7 +258,7 @@ class PuzzleBot:
         if guild is None:
             raise ValueError("Cannot access guild")
         await interaction.send(f"Marking {puzzle_title} as ✅solved")
-        solved_category = await get_category(guild, self.solved_category_name)
+        solved_category = await find_or_make_category(guild, self.solved_category_name)
         if len(solved_category.channels) == 50:
             await interaction.send(
                 f"{get_admin_mention_or_empty(guild)} The solved category is full! 🈵"
@@ -325,7 +327,7 @@ class PuzzleBot:
     async def add_voice_channel(
         cls, guild: disnake.Guild, name: str
     ) -> disnake.VoiceChannel:
-        voice_category = await get_category(guild, cls.voice_category_name)
+        voice_category = await find_or_make_category(guild, cls.voice_category_name)
         return await guild.create_voice_channel(name=name, category=voice_category)
 
     @classmethod
@@ -361,10 +363,11 @@ class PuzzleBot:
 
     @classmethod
     async def remove_voice_channel(
-        cls, voice_channel: disnake.VoiceChannel, interaction: Interaction
+        cls, voice_channel: disnake.VoiceChannel, interaction: Optional[Interaction]
     ) -> bool:
         if voice_channel.members:
-            await interaction.send("Not removing voice channel in use 🗣️")
+            if interaction is not None:
+                await interaction.send("Not removing voice channel in use 🗣️")
             return False
         else:
             await voice_channel.delete()
@@ -372,7 +375,7 @@ class PuzzleBot:
 
     @classmethod
     async def puzzle_category(cls, guild: disnake.Guild) -> disnake.CategoryChannel:
-        return await get_category(guild, cls.puzzles_category_name)
+        return await find_or_make_category(guild, cls.puzzles_category_name)
 
     @classmethod
     async def create_categories(cls, guild: disnake.Guild) -> None:

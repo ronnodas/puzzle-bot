@@ -1,10 +1,11 @@
+import itertools
 from collections.abc import Coroutine
 from typing import Any, Callable, Iterator, Optional
 
 import disnake
 from disnake.interactions import ApplicationCommandInteraction as Interaction
 
-from bot import PuzzleBot, THUMBS_UP, add_reaction, get_category
+from bot import PuzzleBot, THUMBS_UP, add_reaction, find_or_make_category
 
 
 class DonnerBot(PuzzleBot):
@@ -22,14 +23,27 @@ class DonnerBot(PuzzleBot):
             name="recount",
             description="Update party size if it gets out of sync for some reason",
         )(self.recount)
+        self.client.slash_command(
+            name="voice_cleanup", description="remove voice channels not in use"
+        )(self.voice_cleanup)
 
     async def solve(self, interaction: Interaction) -> None:
         response = await super().solve(interaction)
-        puzzle_title = self.get_puzzle_title(interaction.channel)
+        puzzle_title = self.get_puzzle_title(interaction.channel())
         if response is not None and puzzle_title is not None:
             await self.update_party_channel(
                 interaction.guild, f"Solved puzzle {puzzle_title}."
             )
+
+    async def voice_cleanup(self, interaction: Interaction) -> None:
+        await interaction.send("Removing all voice channels not in use", ephemeral=True)
+
+        count = 0
+        for channel in interaction.guild.voice_channels:
+            name = channel.name.strip().lower()
+            if not any(name.startswith(prefix) for prefix in ["lobby", "general"]):
+                count += await self.remove_voice_channel(channel, None)
+        await interaction.edit_original_message(f"Removed {count} channels")
 
     @classmethod
     async def on_member_join(cls, member: disnake.Member) -> None:
@@ -60,29 +74,33 @@ class DonnerBot(PuzzleBot):
         if guild is None:
             return 0
         party_channel = cls.get_party_channel(guild)
-        n = cls.get_party_count(guild)
+        n = await cls.get_party_count(guild)
         await party_channel.edit(name=f"party-of-{'minus' if n < 0 else ''}{n}")
         return n
 
     @classmethod
-    def get_party_count(cls, guild: disnake.Guild) -> int:
-        solved_category = await get_category(guild, cls.solved_category_name)
+    async def get_party_count(cls, guild: disnake.Guild) -> int:
+        solved_category = await find_or_make_category(guild, cls.solved_category_name)
         solved_number = 0
-        i = 2
-        while solved_category is not None:
+        for i in itertools.count(2):
             solved_number += len(solved_category.text_channels)
-            solved_category = await get_category(
-                guild, f"{cls.solved_category_name} {i}"
+            solved_category = disnake.utils.get(
+                guild.categories, name=f"{cls.solved_category_name} {i}"
             )
-            i += 1
-        print(f"{len(guild.members)} members and {solved_number} solved puzzles")
-        return len(guild.members) - solved_number
+            if solved_category is None:
+                break
+        print(f"{guild.member_count} members and {solved_number} solved puzzles")
+        return guild.member_count - solved_number
 
     @classmethod
     def get_party_channel(cls, guild: disnake.Guild) -> disnake.TextChannel:
         for channel in guild.text_channels:
             if channel.name.startswith("party-of"):
                 return channel
+
+    async def on_ready(self) -> None:
+        await super().on_ready()
+        await self.update_party_size_silently(self.client.get_guild(self.guild_id))
 
 
 if __name__ == "__main__":
