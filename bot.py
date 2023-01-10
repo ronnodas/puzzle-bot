@@ -298,7 +298,7 @@ class PuzzleBot:
             )
             return
         await interaction.send(
-            f"Toggling 🔊voice channel for {puzzle_title}", delete_after=60
+            f"Toggling 🔊voice channel for {puzzle_title}", ephemeral=True
         )
         voice_channel = disnake.utils.get(guild.voice_channels, name=puzzle_title)
         if voice_channel is not None:
