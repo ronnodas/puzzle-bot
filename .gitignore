@@ -2,3 +2,4 @@ config.ini
 .idea*
 *.json
 venv
+__pycache__

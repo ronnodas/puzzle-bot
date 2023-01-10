@@ -1,2 +1,2 @@
 disnake==2.7.0
-PyDrive2~=1.15.0
+PyDrive2==1.15.0

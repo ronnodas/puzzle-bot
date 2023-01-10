@@ -242,7 +242,7 @@ class PuzzleBot:
         )
         await add_reaction(interaction, THUMBS_UP)
 
-    async def solve(self, interaction: Interaction) -> None:
+    async def solve(self, interaction: Interaction) -> Optional[str]:
         text_channel = cast(Channel, interaction.channel)
         # TODO should not need this cast since checking if TextChannel
         puzzle_title = self.get_puzzle_title(text_channel, unsolved=True)
@@ -268,6 +268,7 @@ class PuzzleBot:
         self.drive.move_spreadsheet_to_solved(puzzle_title)
         await self.find_and_remove_voice_channel(interaction, puzzle_title)
         await add_reaction(interaction, THUMBS_UP)
+        return puzzle_title
 
     async def remove_puzzle(
         self, interaction: Interaction, puzzle_title: str = title_param

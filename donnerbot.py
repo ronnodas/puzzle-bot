@@ -28,9 +28,8 @@ class DonnerBot(PuzzleBot):
         )(self.voice_cleanup)
 
     async def solve(self, interaction: Interaction) -> None:
-        response = await super().solve(interaction)
-        puzzle_title = self.get_puzzle_title(interaction.channel())
-        if response is not None and puzzle_title is not None:
+        puzzle_title = await super().solve(interaction)
+        if puzzle_title is not None:
             await self.update_party_channel(
                 interaction.guild, f"Solved puzzle {puzzle_title}."
             )
@@ -39,19 +38,20 @@ class DonnerBot(PuzzleBot):
         await interaction.send("Removing all voice channels not in use", ephemeral=True)
 
         count = 0
-        for channel in interaction.guild.voice_channels:
+        guild = interaction.guild
+        if guild is None:
+            return
+        for channel in guild.voice_channels:
             name = channel.name.strip().lower()
             if not any(name.startswith(prefix) for prefix in ["lobby", "general"]):
                 count += await self.remove_voice_channel(channel, None)
         await interaction.edit_original_message(f"Removed {count} channels")
 
-    @classmethod
-    async def on_member_join(cls, member: disnake.Member) -> None:
-        await cls.update_party_channel(member.guild, f"{member.mention} has joined 😃")
+    async def on_member_join(self, member: disnake.Member) -> None:
+        await self.update_party_size_silently(member.guild)
 
-    @classmethod
-    async def on_member_remove(cls, member: disnake.Member) -> None:
-        await cls.update_party_channel(member.guild, f"{member.mention} has left️ ☹")
+    async def on_member_remove(self, member: disnake.Member) -> None:
+        await self.update_party_size_silently(member.guild)
 
     @classmethod
     async def recount(cls, interaction: Interaction) -> None:
