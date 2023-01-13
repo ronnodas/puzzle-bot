@@ -51,16 +51,9 @@ class PuzzleDrive(pydrive2.drive.GoogleDrive):
                 }
             ).GetList()[0]["id"]
         except IndexError:
-            solved_folder = self.CreateFile(
-                {
-                    "title": "Solved",
-                    "parents": [{"id": self.root_folder_id}],
-                    "mimeType": "application/vnd.google-apps.folder",
-                }
-            )
-            solved_folder.Upload()
-            solved_folder.FetchMetadata()
-            return solved_folder["id"]
+            return self.create_file("Solved", "application/vnd.google-apps.folder")[
+                "id"
+            ]
 
     def add_spreadsheet(self, title: str) -> str:
         self.refresh_token_if_expired()
@@ -72,16 +65,21 @@ class PuzzleDrive(pydrive2.drive.GoogleDrive):
             }
         ).GetList():
             return search_list[0]["alternateLink"]
-        spreadsheet = self.CreateFile(
+        return self.create_file(title, "application/vnd.google-apps.spreadsheet")[
+            "alternateLink"
+        ]
+
+    def create_file(self, title, mime_type):
+        file = self.CreateFile(
             {
                 "title": title,
                 "parents": [{"id": self.root_folder_id}],
-                "mimeType": "application/vnd.google-apps.spreadsheet",
+                "mimeType": mime_type,
             }
         )
-        spreadsheet.Upload()
-        spreadsheet.FetchMetadata()
-        return spreadsheet["alternateLink"]
+        file.Upload()
+        file.FetchMetadata()
+        return file
 
     def remove_spreadsheet(self, title: str) -> None:
         self.refresh_token_if_expired()
@@ -124,7 +122,12 @@ class PuzzleDrive(pydrive2.drive.GoogleDrive):
 
     @classmethod
     def get_authentication(cls) -> pydrive2.auth.GoogleAuth:
-        authentication = pydrive2.auth.GoogleAuth()
+        authentication = pydrive2.auth.GoogleAuth(
+            settings={
+                "client_config_file": "client_secrets.json",
+                "get_refresh_token": True,
+            }
+        )
         authentication.LoadCredentialsFile(cls.saved_credentials_file)
         return authentication
 
@@ -174,11 +177,12 @@ class PuzzleBot:
     voice_category_name = "🧩Puzzle Voice Channels"
 
     def __init__(self, token: str, guild_id: int, drive_root_folder: str) -> None:
+        self.drive = PuzzleDrive(drive_root_folder)
+
         self.token = token
         self.guild_id = guild_id
         self.client = commands.InteractionBot(test_guilds=[guild_id])
 
-        self.drive = PuzzleDrive(drive_root_folder)
         for event in self.events:
             self.client.event(event)
         self.register_commands()
@@ -318,11 +322,9 @@ class PuzzleBot:
         if not isinstance(channel, disnake.TextChannel) or channel.topic is None:
             return None
         category = channel.category
-        if category_has_prefix(category, self.puzzles_category_name) or (
-            (not unsolved) and category_has_prefix(category, self.solved_category_name)
-        ):
-            return channel.topic.strip()
-        return None
+        if unsolved and category_has_prefix(category, self.solved_category_name):
+            return None
+        return channel.topic.strip()
 
     @classmethod
     async def add_voice_channel(

@@ -30,6 +30,7 @@ class DonnerBot(PuzzleBot):
 
     async def solve(self, interaction: Interaction) -> None:
         puzzle_title = await super().solve(interaction)
+
         if puzzle_title is not None:
             await self.update_party_channel(
                 interaction.guild, f"Solved puzzle {puzzle_title}."
@@ -102,7 +103,7 @@ class DonnerBot(PuzzleBot):
             if solved_category is None:
                 break
         print(f"{guild.member_count} members and {solved_number} solved puzzles")
-        return guild.member_count - solved_number
+        return 38 - solved_number
 
     @classmethod
     def get_party_channel(cls, guild: disnake.Guild) -> disnake.TextChannel:

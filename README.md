@@ -21,4 +21,5 @@ This is a discord bot for helping with puzzle hunts, with Google Drive integrati
 1. Run `bot.py`, either by making it executable or with `python3 bot.py`.
 2. If it outputs a link or opens your browser then follow that link to authenticate the bot 
    and give it the required permissions. Most of these should be one time, on first run.
-3. Rerun the bot if it crashes.
+3. On later runs, if need to reauthorize to google drive then first revoke access and then reauthorize, see https://stackoverflow.com/questions/38467374/google-api-refresh-token-null-and-how-to-refresh-access-token
+4. Rerun the bot if it crashes.
