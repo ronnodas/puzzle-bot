@@ -4,9 +4,8 @@ from typing import Any, Callable, Iterator, Optional
 
 import disnake
 from disnake.interactions import ApplicationCommandInteraction as Interaction
-from disnake.ext import tasks
 
-from bot import PuzzleBot, THUMBS_UP, add_reaction, find_or_make_category
+from bot import THUMBS_UP, PuzzleBot, add_reaction, find_or_make_category
 
 
 class DonnerBot(PuzzleBot):
@@ -24,9 +23,6 @@ class DonnerBot(PuzzleBot):
             name="recount",
             description="Update party size if it gets out of sync for some reason",
         )(self.recount)
-        self.client.slash_command(
-            name="voice_cleanup", description="remove voice channels not in use"
-        )(self.manual_voice_cleanup)
 
     async def solve(self, interaction: Interaction) -> None:
         puzzle_title = await super().solve(interaction)
@@ -35,30 +31,6 @@ class DonnerBot(PuzzleBot):
             await self.update_party_channel(
                 interaction.guild, f"Solved puzzle {puzzle_title}."
             )
-
-    async def manual_voice_cleanup(self, interaction: Interaction) -> None:
-        await interaction.send("Removing all voice channels not in use", ephemeral=True)
-        guild = interaction.guild
-        count = await self.voice_cleanup(guild)
-        if count != 0:
-            await interaction.edit_original_message(f"Removed {count} channel(s)")
-
-    @tasks.loop(minutes=30.0)
-    async def voice_cleanup(self, guild: Optional[disnake.Guild] = None) -> int:
-        if guild is None:
-            guild = self.client.get_guild(self.guild_id)
-        if guild is None:
-            return 0
-        count = 0
-        for channel in guild.voice_channels:
-            name = channel.name.strip().lower()
-            if not any(name.startswith(prefix) for prefix in ["lobby", "general"]):
-                count += await self.remove_voice_channel(channel, None)
-        return count
-
-    @voice_cleanup.before_loop
-    async def before_voice_cleanup(self):
-        await self.client.wait_until_ready()
 
     async def on_member_join(self, member: disnake.Member) -> None:
         await self.update_party_size_silently(member.guild)

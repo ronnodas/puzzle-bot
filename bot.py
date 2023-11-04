@@ -7,7 +7,7 @@ from typing import Any, Optional, Union, cast
 import disnake
 import pydrive2.auth  # type: ignore
 import pydrive2.drive  # type: ignore
-from disnake.ext import commands
+from disnake.ext import commands, tasks
 from disnake.interactions import ApplicationCommandInteraction as Interaction
 
 Channel = Union[disnake.TextChannel, disnake.Thread, disnake.VoiceChannel]
@@ -209,6 +209,31 @@ class PuzzleBot:
             description="Remove a puzzle",
             default_member_permissions=disnake.Permissions(administrator=True),
         )(self.remove_puzzle)
+        self.client.slash_command(
+            name="voice_cleanup", description="remove voice channels not in use"
+        )(self.manual_voice_cleanup)
+        # self.client.slash_command(
+        #     name="cleanup",
+        #     description="ONLY USE IF YOU KNOW WHAT YOU ARE DOING: removes all puzzle channels",
+        #     default_member_permissions=disnake.Permissions(administrator=True),
+        # )(self.channel_cleanup)
+
+    @tasks.loop(minutes=30.0)
+    async def voice_cleanup(self, guild: Optional[disnake.Guild] = None) -> int:
+        if guild is None:
+            guild = self.client.get_guild(self.guild_id)
+        if guild is None:
+            return 0
+        count = 0
+        for channel in guild.voice_channels:
+            name = channel.name.strip().lower()
+            if not any(name.startswith(prefix) for prefix in ["lobby", "general"]):
+                count += await self.remove_voice_channel(channel, None)
+        return count
+
+    @voice_cleanup.before_loop
+    async def before_voice_cleanup(self):
+        await self.client.wait_until_ready()
 
     # @property
     # async def channels(self) -> Iterator[interactions.Channel]:
@@ -216,6 +241,25 @@ class PuzzleBot:
     #         interactions.Channel(**data)
     #         for data in self.http.get_all_channels(self.guild_id)
     #     ]
+
+    # async def channel_cleanup(self, interaction: Interaction) -> None:
+    #     guild = self.client.get_guild(self.guild_id)
+    #     if guild is None:
+    #         return
+    #     channels = [
+    #         channel
+    #         for channel in guild.text_channels
+    #         if self.get_puzzle_title(channel) is not None
+    #     ]
+    #     print(f"Removing {len(channels)} channels:")
+    #     for channel in channels:
+    #         print(f"    {channel.name}")
+    #     response = input("Confirm: (y/n)")
+    #     if response.lower() != "y":
+    #         return
+    #     for channel in channels:
+    #         channel.delete()
+    #     await self.manual_voice_cleanup()
 
     async def on_ready(self) -> None:
         await self.create_categories(self.client.get_guild(self.guild_id))
@@ -316,6 +360,13 @@ class PuzzleBot:
             reaction = THUMBS_UP
         await add_reaction(interaction, reaction)
 
+    async def manual_voice_cleanup(self, interaction: Interaction) -> None:
+        await interaction.send("Removing all voice channels not in use", ephemeral=True)
+        guild = interaction.guild
+        count = await self.voice_cleanup(guild)
+        if count != 0:
+            await interaction.edit_original_message(f"Removed {count} channel(s)")
+
     def get_puzzle_title(
         self, channel: Channel, unsolved: bool = False
     ) -> Optional[str]:
@@ -389,3 +440,7 @@ class PuzzleBot:
         ):
             if disnake.utils.get(guild.categories, name=category) is None:
                 await guild.create_category(category)
+
+
+if __name__ == "__main__":
+    PuzzleBot.run_from_config()
