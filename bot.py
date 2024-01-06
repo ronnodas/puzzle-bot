@@ -145,7 +145,7 @@ async def find_or_make_category(
 
 
 def title_converter(_, title: str) -> str:
-    return title.replace("'", "").replace('"', "")
+    return title.replace("'", "").replace('"', "").replace("#", "").strip()
 
 
 def category_has_prefix(
