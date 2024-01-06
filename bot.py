@@ -177,7 +177,7 @@ class PuzzleBot:
     solved_category_name = "✅Solved"
     voice_category_name = "🧩Puzzle Voice Channels"
 
-    def __init__(self, token: str, guild_id: int, drive_root_folder: str) -> None:
+    def __init__(self, token: str, guild_id: int, drive_root_folder: str, **_) -> None:
         self.drive = PuzzleDrive(drive_root_folder)
 
         self.token = token
@@ -402,6 +402,7 @@ class PuzzleBot:
             token=config["discord"]["token"],
             drive_root_folder=config["Google drive"]["root folder"],
             guild_id=int(config["discord"]["guild id"]),
+            other_configs=config,
         )
         bot.start()
 
