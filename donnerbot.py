@@ -1,3 +1,6 @@
+#! /usr/bin/env python3
+# coding: utf-8
+
 import itertools
 from collections.abc import Coroutine
 from typing import Any, Callable, Iterator, Optional
@@ -50,17 +53,16 @@ class DonnerBot(PuzzleBot):
             print("Could not find party channel!")
             return
         count = await cls.update_party_size_silently(guild)
-        await cls.get_party_channel(guild).send(
-            f"{reason}\nWe're now Donner, Party of {count}..."
-        )
+        if (party_channel := cls.get_party_channel(guild)) is not None:
+            await party_channel.send(f"{reason}\nWe're now Donner, Party of {count}...")
 
     @classmethod
     async def update_party_size_silently(cls, guild: Optional[disnake.Guild]) -> int:
         if guild is None:
             return 0
-        party_channel = cls.get_party_channel(guild)
         n = await cls.get_party_count(guild)
-        await party_channel.edit(name=f"party-of-{'minus' if n < 0 else ''}{n}")
+        if (party_channel := cls.get_party_channel(guild)) is not None:
+            await party_channel.edit(name=f"party-of-{'minus-' if n < 0 else ''}{n}")
         return n
 
     @classmethod
@@ -78,7 +80,7 @@ class DonnerBot(PuzzleBot):
         return 38 - solved_number
 
     @classmethod
-    def get_party_channel(cls, guild: disnake.Guild) -> disnake.TextChannel:
+    def get_party_channel(cls, guild: disnake.Guild) -> disnake.TextChannel | None:
         for channel in guild.text_channels:
             if channel.name.startswith("party-of"):
                 return channel

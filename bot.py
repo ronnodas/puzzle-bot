@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 # coding: utf-8
+
 from collections.abc import Callable, Coroutine, Iterator
 from configparser import ConfigParser
 from typing import Any, Optional, Union, cast
@@ -243,26 +244,35 @@ class PuzzleBot:
     #     ]
 
     # async def channel_cleanup(self, interaction: Interaction) -> None:
+    #     await interaction.response.defer()
     #     guild = self.client.get_guild(self.guild_id)
     #     if guild is None:
     #         return
+    #     category = await find_or_make_category(guild, "archive 2023")
     #     channels = [
     #         channel
     #         for channel in guild.text_channels
     #         if self.get_puzzle_title(channel) is not None
+    #         and (channel_category := channel.category) is not None
+    #         and not channel_category.name.startswith("archive")
     #     ]
-    #     print(f"Removing {len(channels)} channels:")
+    #     # print(f"Removing {len(channels)} channels:")
+    #     # for channel in channels:
+    #     #     print(f"    {channel.name}")
+    #     # response = input("Confirm: (y/n)")
+    #     # if response.lower() != "y":
+    #     #     return
     #     for channel in channels:
-    #         print(f"    {channel.name}")
-    #     response = input("Confirm: (y/n)")
-    #     if response.lower() != "y":
-    #         return
-    #     for channel in channels:
-    #         channel.delete()
-    #     await self.manual_voice_cleanup()
+    #         await channel.edit(category=category)
+    #     await self.manual_voice_cleanup(interaction)
+    #     await add_reaction(interaction, THUMBS_UP)
 
     async def on_ready(self) -> None:
-        await self.create_categories(self.client.get_guild(self.guild_id))
+        guild = self.client.get_guild(self.guild_id)
+        if guild is not None:
+            await self.create_categories(guild)
+        else:
+            print(f"Could not access guild {self.guild_id}")
         print(f"Logged in as {self.client.user.name} (id #{self.client.user.id})")
 
     async def add_puzzle(
