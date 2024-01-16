@@ -366,7 +366,9 @@ class PuzzleBot:
                 else THUMBS_DOWN
             )
         else:
-            await self.add_voice_channel(guild, puzzle_title)
+            await self.add_voice_channel(
+                guild, puzzle_title, category=text_channel.category
+            )
             reaction = THUMBS_UP
         await add_reaction(interaction, reaction)
 
@@ -389,10 +391,11 @@ class PuzzleBot:
 
     @classmethod
     async def add_voice_channel(
-        cls, guild: disnake.Guild, name: str
+        cls, guild: disnake.Guild, name: str, category=None
     ) -> disnake.VoiceChannel:
-        voice_category = await find_or_make_category(guild, cls.voice_category_name)
-        return await guild.create_voice_channel(name=name, category=voice_category)
+        if category is None:
+            category = await find_or_make_category(guild, cls.voice_category_name)
+        return await guild.create_voice_channel(name=name, category=category)
 
     @classmethod
     def run_from_config(cls) -> None:
