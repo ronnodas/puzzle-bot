@@ -183,9 +183,7 @@ def get_admin_mention_or_empty(guild: disnake.Guild) -> str:
 
 class PuzzleBot:
     description = "A bot to help puzzle hunts"
-    puzzles_category_name = "🧩Puzzles"
     solved_category_name = "✅Solved"
-    voice_category_name = "🧩Puzzle Voice Channels"
     general_category_name = "💭General"  # should probably be a configuration option
 
     def __init__(self, token: str, guild_id: int, drive_root_folder: str, **_) -> None:
@@ -284,11 +282,11 @@ class PuzzleBot:
     #     await self.manual_voice_cleanup(interaction)
     #     await add_reaction(interaction, THUMBS_UP)
 
-    async def on_ready(self) -> None:
+    async def on_ready(self, *args) -> None:
         guild = self.client.get_guild(self.guild_id)
         if guild is not None:
             await self.create_categories(guild)
-            self.known_rounds = await self.parse_rounds(guild)
+            self.known_rounds = self.parse_rounds(guild)
         else:
             print(f"Could not access guild {self.guild_id}")
         print(f"Logged in as {self.client.user.name} (id #{self.client.user.id})")
@@ -410,8 +408,8 @@ class PuzzleBot:
                 else THUMBS_DOWN
             )
         else:
-            await self.add_voice_channel(
-                guild, puzzle_title, category=text_channel.category
+            await guild.create_voice_channel(
+                name=puzzle_title, category=text_channel.category
             )
             reaction = THUMBS_UP
         await add_reaction(interaction, reaction)
@@ -433,7 +431,7 @@ class PuzzleBot:
             return None
         return channel.topic.strip()
 
-    async def parse_rounds(self, guild: disnake.Guild) -> dict[str, str]:
+    def parse_rounds(self, guild: disnake.Guild) -> dict[str, str]:
         rounds = {}
         for category in guild.categories:
             if category_has_prefix(category, self.solved_category_name):
@@ -461,13 +459,41 @@ class PuzzleBot:
         activity = disnake.Activity(name=round_name)
         await self.client.change_presence(activity=activity)
 
-    @classmethod
-    async def add_voice_channel(
-        cls, guild: disnake.Guild, name: str, category=None
-    ) -> disnake.VoiceChannel:
+    async def add_puzzle_channel_to_round(
+        self,
+        interaction: Interaction,
+        puzzle_title: str,
+        round_name: str,
+        guild: disnake.Guild,
+    ) -> None:
+        category = disnake.utils.get(guild.categories, name=round_name)
         if category is None:
-            category = await find_or_make_category(guild, cls.voice_category_name)
-        return await guild.create_voice_channel(name=name, category=category)
+            await interaction.send(
+                f"Something went wrong; maybe the category {round_name} was deleted or created manually?"
+            )
+            await add_reaction(interaction, THUMBS_DOWN)
+            self.known_rounds = self.parse_rounds(guild)
+            return
+        await interaction.send(f"Creating puzzle {puzzle_title} in round {round_name}")
+        existing_channel = disnake.utils.get(guild.text_channels, topic=puzzle_title)
+        if existing_channel is not None:
+            await interaction.send(
+                f"There's already a puzzle called {puzzle_title} at {existing_channel.mention}"
+            )
+            await add_reaction(interaction, THUMBS_DOWN)
+        link = self.drive.add_spreadsheet(puzzle_title)
+        channel = await self.add_puzzle_text_channel(
+            guild, puzzle_title, category=category
+        )
+        link_message = await channel.send(
+            f"I found a 📔spreadsheet for this puzzle at {link}"
+        )
+        await link_message.pin()
+        await guild.create_voice_channel(name=puzzle_title, category=category)
+        await self.set_round(round_name)
+        await interaction.edit_original_message(
+            content=f'Created 🧩 "{puzzle_title}" at {channel.mention}'
+        )
 
     @classmethod
     def run_from_config(cls) -> None:
@@ -513,54 +539,10 @@ class PuzzleBot:
             return True
 
     @classmethod
-    async def puzzle_category(cls, guild: disnake.Guild) -> disnake.CategoryChannel:
-        return await find_or_make_category(guild, cls.puzzles_category_name)
-
-    @classmethod
     async def create_categories(cls, guild: disnake.Guild) -> None:
-        for category in (
-            cls.puzzles_category_name,
-            cls.voice_category_name,
-            cls.solved_category_name,
-        ):
-            if disnake.utils.get(guild.categories, name=category) is None:
-                await guild.create_category(category)
-
-    async def add_puzzle_channel_to_round(
-        self,
-        interaction: Interaction,
-        puzzle_title: str,
-        round_name: str,
-        guild: disnake.Guild,
-    ) -> None:
-        category = disnake.utils.get(guild.categories, name=round_name)
-        if category is None:
-            await interaction.send(
-                f"Something went wrong; maybe the round {round_name} was deleted?"
-            )
-            await add_reaction(interaction, THUMBS_DOWN)
-            self.known_rounds = await self.parse_rounds(guild)
-            return
-        await interaction.send(f"Creating puzzle {puzzle_title} in round {round_name}")
-        existing_channel = disnake.utils.get(guild.text_channels, topic=puzzle_title)
-        if existing_channel is not None:
-            await interaction.send(
-                f"There's already a puzzle called {puzzle_title} at {existing_channel.mention}"
-            )
-            await add_reaction(interaction, THUMBS_DOWN)
-        link = self.drive.add_spreadsheet(puzzle_title)
-        channel = await self.add_puzzle_text_channel(
-            guild, puzzle_title, category=category
-        )
-        link_message = await channel.send(
-            f"I found a 📔spreadsheet for this puzzle at {link}"
-        )
-        await link_message.pin()
-        await self.add_voice_channel(guild, puzzle_title)
-        await self.set_round(round_name)
-        await interaction.edit_original_message(
-            content=f'Created 🧩 "{puzzle_title}" at {channel.mention}'
-        )
+        category = cls.solved_category_name
+        if disnake.utils.get(guild.categories, name=category) is None:
+            await guild.create_category(category)
 
 
 if __name__ == "__main__":
