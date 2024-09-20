@@ -1,2 +1,2 @@
-disnake>=2.9.1
-PyDrive2>=1.17.0
+disnake
+PyDrive2
